@@ -9,6 +9,7 @@ pub const TokenType = enum {
     EndStatement, // ;
     PropertyName, // margin
     PropertyValue, // 0px
+    TypeSelector, // h1
 };
 
 pub const Token = struct {
@@ -117,6 +118,11 @@ pub const Tokenizer = struct {
         if (std.ascii.isSpace(char)) {
             return;
         }
+        else if (std.ascii.isAlNum(char)) {
+            self.state = .Identifier;
+            try self.tokenization.tokens.append(Token { .type = .TypeSelector, .start = self.pos});
+            return;
+        }
 
         return switch(char) {
             '.' => self.state = .SawDot,
@@ -142,7 +148,7 @@ pub const Tokenizer = struct {
     }
 
     fn on_identifier(self: *Tokenizer, char: u8) Error!void {
-        if (std.ascii.isAlpha(char)) {
+        if (std.ascii.isAlNum(char)) {
             return;
         }
 
@@ -287,7 +293,7 @@ pub const Tokenizer = struct {
 };
 
 
-test "Class identifier" {
+test "Class selector" {
     const input = ".button{}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -296,6 +302,20 @@ test "Class identifier" {
         Token{ .type = .ClassSelector, .start = 1, .end = 7},
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .BlockEnd, .start = 8, .end = 9 },
+    };
+
+    try expectTokenEquals(&expected, tokenization.tokens.items);
+}
+
+test "Type selector" {
+    const input = "h1{}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var expected: [3]Token = .{
+        Token{ .type = .TypeSelector, .start = 0, .end = 2},
+        Token{ .type = .BlockStart, .start = 2, .end = 3 },
+        Token{ .type = .BlockEnd, .start = 3, .end = 4 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens.items);
