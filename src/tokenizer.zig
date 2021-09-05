@@ -7,6 +7,7 @@ pub const TokenType = enum {
     BlockEnd, // }
     ClassSelector, // .button
     EndStatement, // ;
+    IdSelector, // #name
     PropertyName, // margin
     PropertyValue, // 0px
     TypeSelector, // h1
@@ -35,6 +36,7 @@ pub const TokenizerState = enum {
     Done,
     Identifier,
     SawDot,
+    SawSharp,
     SawOpenBracket,
     PropertyNameLookup,
     PropertyName,
@@ -49,6 +51,7 @@ pub const Error = error {
     NotImplemented,
     ClassSelectorCanOnlyContainsAlphaChar,
     IdentifierCanOnlyContainsAlphaChar,
+    IdSelectorCanOnlyContainsAlphaChar,
     NoCRLFBetweenPropertyValueAndSemicolon,
     OutOfMemory,
     PropertyNameCanOnlyContainsAlphaChar,
@@ -95,6 +98,7 @@ pub const Tokenizer = struct {
         var result = switch(self.state) {
             .Start => self.on_start(char),
             .SawDot => self.on_dot(char),
+            .SawSharp => self.on_sharp(char),
             .Identifier => self.on_identifier(char),
             .SawOpenBracket => self.on_open_bracket(char),
             .PropertyNameLookup => self.on_property_name_lookup(char),
@@ -126,6 +130,7 @@ pub const Tokenizer = struct {
 
         return switch(char) {
             '.' => self.state = .SawDot,
+            '#' => self.state = .SawSharp,
             '{' => {
                 self.state = .SawOpenBracket;
                 try self.tokenization.tokens.append(Token { .type = .BlockStart, .start = self.pos, .end = self.pos + 1});
@@ -144,6 +149,18 @@ pub const Tokenizer = struct {
         return switch(char) {
             '\x00' => error.UnexpectedEndOfFile,
             else => error.ClassSelectorCanOnlyContainsAlphaChar,
+        };
+    }
+
+    fn on_sharp(self: *Tokenizer, char: u8) Error!void {
+        if (std.ascii.isAlNum(char)) {
+            try self.tokenization.tokens.append(Token{ .type = .IdSelector, .start = self.pos });
+            self.state = .Identifier;
+            return;
+        }
+        return switch(char) {
+            '\x00' => error.UnexpectedEndOfFile,
+            else => error.IdSelectorCanOnlyContainsAlphaChar,
         };
     }
 
@@ -316,6 +333,20 @@ test "Type selector" {
         Token{ .type = .TypeSelector, .start = 0, .end = 2},
         Token{ .type = .BlockStart, .start = 2, .end = 3 },
         Token{ .type = .BlockEnd, .start = 3, .end = 4 },
+    };
+
+    try expectTokenEquals(&expected, tokenization.tokens.items);
+}
+
+test "Id selector" {
+    const input = "#name{}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var expected: [3]Token = .{
+        Token{ .type = .IdSelector, .start = 1, .end = 5},
+        Token{ .type = .BlockStart, .start = 5, .end = 6 },
+        Token{ .type = .BlockEnd, .start = 6, .end = 7 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens.items);
