@@ -32,17 +32,18 @@ pub const Tokenization = struct {
 };
 
 pub const TokenizerState = enum {
-    ColonLookup,
     Done,
-    EndStatementLookup,
-    Identifier,
+    PropertyColonLookup,
     PropertyName,
     PropertyNameLookup,
+    PropertySemicolonLookup,
     PropertyValue,
     PropertyValueLookup,
     SawDot,
     SawOpenBracket,
     SawSharp,
+    Selector,
+    SelectorLookup,
     Start,
 };
 
@@ -93,17 +94,18 @@ pub const Tokenizer = struct {
 
     fn process_char(self: *Tokenizer, char: u8) Error!void {
         var result = switch (self.state) {
-            .ColonLookup => self.on_colon_lookup(char),
             .Done => {},
-            .EndStatementLookup => self.on_end_statement_lookup(char),
-            .Identifier => self.on_identifier(char),
+            .PropertyColonLookup => self.on_property_colon_lookup(char),
             .PropertyName => self.on_property_name(char),
             .PropertyNameLookup => self.on_property_name_lookup(char),
+            .PropertySemicolonLookup => self.on_property_semicolon_lookup(char),
             .PropertyValue => self.on_property_value(char),
             .PropertyValueLookup => self.on_property_value_lookup(char),
             .SawDot => self.on_dot(char),
             .SawOpenBracket => self.on_open_bracket(char),
             .SawSharp => self.on_sharp(char),
+            .Selector => self.on_selector(char),
+            .SelectorLookup => self.on_selector_lookup(char),
             .Start => self.on_start(char),
         };
         if (result) {
@@ -118,7 +120,25 @@ pub const Tokenizer = struct {
         if (std.ascii.isSpace(char)) {
             return;
         } else if (std.ascii.isAlNum(char)) {
-            self.state = .Identifier;
+            self.state = .Selector;
+            try self.tokenization.tokens.append(Token{ .type = .TypeSelector, .start = self.pos });
+            return;
+        }
+
+        return switch (char) {
+            '.' => self.state = .SawDot,
+            '#' => self.state = .SawSharp,
+            '\x00' => self.state = .Done,
+            else => error.UnexpectedCharacter,
+        };
+    }
+
+    fn on_selector_lookup(self: *Tokenizer, char: u8) Error!void {
+        if (std.ascii.isSpace(char)) {
+            return;
+        }
+        if (std.ascii.isAlNum(char)) {
+            self.state = .Selector;
             try self.tokenization.tokens.append(Token{ .type = .TypeSelector, .start = self.pos });
             return;
         }
@@ -138,7 +158,7 @@ pub const Tokenizer = struct {
     fn on_dot(self: *Tokenizer, char: u8) Error!void {
         if (std.ascii.isAlpha(char)) {
             try self.tokenization.tokens.append(Token{ .type = .ClassSelector, .start = self.pos });
-            self.state = .Identifier;
+            self.state = .Selector;
             return;
         }
         return switch (char) {
@@ -150,7 +170,7 @@ pub const Tokenizer = struct {
     fn on_sharp(self: *Tokenizer, char: u8) Error!void {
         if (std.ascii.isAlNum(char)) {
             try self.tokenization.tokens.append(Token{ .type = .IdSelector, .start = self.pos });
-            self.state = .Identifier;
+            self.state = .Selector;
             return;
         }
         return switch (char) {
@@ -159,13 +179,13 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn on_identifier(self: *Tokenizer, char: u8) Error!void {
+    fn on_selector(self: *Tokenizer, char: u8) Error!void {
         if (std.ascii.isAlNum(char)) {
             return;
         }
 
         if (std.ascii.isSpace(char)) {
-            self.state = .Start;
+            self.state = .SelectorLookup;
             try self.set_last_token_end();
             return;
         }
@@ -193,7 +213,7 @@ pub const Tokenizer = struct {
         }
         return switch (char) {
             '}' => {
-                self.state = .Start;
+                self.state = .SelectorLookup;
                 try self.tokenization.tokens.append(Token{ .type = .BlockEnd, .start = self.pos, .end = self.pos + 1 });
             },
             '\x00' => error.UnexpectedEndOfFile,
@@ -212,7 +232,7 @@ pub const Tokenizer = struct {
         }
         return switch (char) {
             '}' => {
-                self.state = .Start;
+                self.state = .SelectorLookup;
                 try self.tokenization.tokens.append(Token{ .type = .BlockEnd, .start = self.pos, .end = self.pos + 1 });
             },
             '\x00' => error.UnexpectedEndOfFile,
@@ -226,7 +246,7 @@ pub const Tokenizer = struct {
         }
 
         if (std.ascii.isSpace(char)) {
-            self.state = .ColonLookup;
+            self.state = .PropertyColonLookup;
             try self.set_last_token_end();
             return;
         }
@@ -241,7 +261,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn on_colon_lookup(self: *Tokenizer, char: u8) Error!void {
+    fn on_property_colon_lookup(self: *Tokenizer, char: u8) Error!void {
         return switch (char) {
             ' ', '\t' => {},
             ':' => self.state = .PropertyValueLookup,
@@ -274,7 +294,7 @@ pub const Tokenizer = struct {
                 try self.tokenization.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
             },
             ' ', '\t' => {
-                self.state = .EndStatementLookup;
+                self.state = .PropertySemicolonLookup;
                 try self.set_last_token_end();
             },
             '}' => error.PropertyValueMustEndWithASemicolon,
@@ -284,7 +304,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn on_end_statement_lookup(self: *Tokenizer, char: u8) Error!void {
+    fn on_property_semicolon_lookup(self: *Tokenizer, char: u8) Error!void {
         return switch (char) {
             ' ', '\t' => {},
             ';' => {
