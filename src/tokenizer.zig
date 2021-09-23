@@ -35,11 +35,6 @@ pub const Tokenization = struct {
 
 pub const TokenizerState = enum {
     Done,
-    PropertyColonLookup,
-    PropertyName,
-    PropertySemicolonLookup,
-    PropertyValue,
-    PropertyValueLookup,
     SawDot,
     StartBlock,
     SawSharp,
@@ -56,6 +51,7 @@ pub const Error = error{
     NoCRLFBetweenPropertyValueAndSemicolon,
     OutOfMemory,
     PropertyNameCanOnlyContainsAlphaChar,
+    PropertyNameCannotContainCRLF,
     PropertyValueCanOnlyContainsAlphaChar,
     PropertyValueCannotBeEmpty,
     PropertyValueCannotContainCRLF,
@@ -102,11 +98,6 @@ pub const Tokenizer = struct {
     inline fn next(self: *Tokenizer) Error!void {
         var result = switch (self.state) {
             .Done => {},
-            .PropertyColonLookup => self.on_property_colon_lookup(),
-            .PropertyName => self.on_property_name(),
-            .PropertySemicolonLookup => self.on_property_semicolon_lookup(),
-            .PropertyValue => self.on_property_value(),
-            .PropertyValueLookup => self.on_property_value_lookup(),
             .SawDot => self.on_dot(),
             .StartBlock => self.on_start_block(),
             .SawSharp => self.on_sharp(),
@@ -209,8 +200,7 @@ pub const Tokenizer = struct {
         self.skipSpace();
 
         if (isIdentifier(self.current_char)) {
-            self.state = .PropertyName;
-            try self.tokenization.tokens.append(Token{ .type = .PropertyName, .start = self.pos });
+            try self.readProperty();
             return;
         }
         return switch (self.current_char) {
@@ -224,72 +214,47 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn on_property_name(self: *Tokenizer) Error!void {
-        self.readWhile(isIdentifier);
-
-        if (std.ascii.isSpace(self.current_char)) {
-            try self.close_token_and_move_to(.PropertyColonLookup);
-            return;
-        }
-
-        return switch (self.current_char) {
-            ':' => {
-                try self.close_token_and_move_to(.PropertyValueLookup);
-            },
-            '\x00' => error.UnexpectedEndOfFile,
-            else => error.PropertyNameCanOnlyContainsAlphaChar,
-        };
+    fn readProperty(self: *Tokenizer) !void {
+        try self.readPropertyName();
+        try self.readPropertyValue();
     }
 
-    fn on_property_colon_lookup(self: *Tokenizer) Error!void {
+    fn readPropertyName(self: *Tokenizer) !void {
+        if (!isIdentifier(self.current_char)) {
+            return error.PropertyNameCanOnlyContainsAlphaChar;
+        }
+
+        try self.tokenization.tokens.append(Token{ .type = .PropertyName, .start = self.pos });
+        self.readWhile(isIdentifier);
+        try self.close_token();
+
         self.skipBlank();
+
         return switch (self.current_char) {
-            ':' => self.state = .PropertyValueLookup,
+            ':' => self.pos += 1,
+            '\x00' => error.UnexpectedEndOfFile,
+            '\r', '\n' => error.PropertyNameCannotContainCRLF,
             else => error.UnexpectedCharacter,
         };
     }
 
-    fn on_property_value_lookup(self: *Tokenizer) Error!void {
+    fn readPropertyValue(self: *Tokenizer) !void {
         self.skipBlank();
 
-        if (isIdentifier(self.current_char)) {
-            self.state = .PropertyValue;
-            try self.tokenization.tokens.append(Token{ .type = .PropertyValue, .start = self.pos });
-            return;
-        }
-
-        return switch (self.current_char) {
-            ';' => error.PropertyValueCannotBeEmpty,
-            else => error.PropertyValueCanOnlyContainsAlphaChar,
-        };
-    }
-
-    fn on_property_value(self: *Tokenizer) Error!void {
-        self.readWhile(isIdentifier);
+        try self.tokenization.tokens.append(Token{ .type = .PropertyValue, .start = self.pos });
+        self.readWhile(isPropertyValue);
+        try self.close_token();
 
         return switch (self.current_char) {
             ';' => {
-                try self.close_token_and_move_to(.StartBlock);
+                const property_value = self.get_last_token();
+                if (property_value.start == property_value.end) {
+                    return error.PropertyValueCannotBeEmpty;
+                }
                 try self.tokenization.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
-            },
-            ' ', '\t' => {
-                try self.close_token_and_move_to(.PropertySemicolonLookup);
             },
             '}' => error.PropertyValueMustEndWithASemicolon,
             '\r', '\n' => error.PropertyValueCannotContainCRLF,
-            '\x00' => error.UnexpectedEndOfFile,
-            else => error.UnexpectedCharacter,
-        };
-    }
-
-    fn on_property_semicolon_lookup(self: *Tokenizer) Error!void {
-        self.skipBlank();
-        return switch (self.current_char) {
-            ';' => {
-                self.state = .StartBlock;
-                try self.tokenization.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
-            },
-            '\r', '\n' => error.NoCRLFBetweenPropertyValueAndSemicolon,
             '\x00' => error.UnexpectedEndOfFile,
             else => error.UnexpectedCharacter,
         };
@@ -325,7 +290,7 @@ pub const Tokenizer = struct {
         self.skipBlank();
 
         try self.tokenization.tokens.append(Token{ .type = .VariableValue, .start = self.pos });
-        self.readWhile(isVariableValue);
+        self.readWhile(isPropertyValue);
 
         self.skipBlank();
 
@@ -340,15 +305,15 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn skipBlank(self: *Tokenizer) callconv(.Inline) void {
+    inline fn skipBlank(self: *Tokenizer) void {
         return self.readWhile(std.ascii.isBlank);
     }
 
-    fn skipSpace(self: *Tokenizer) callconv(.Inline) void {
+    inline fn skipSpace(self: *Tokenizer) void {
         return self.readWhile(std.ascii.isSpace);
     }
 
-    fn readWhile(self: *Tokenizer, condition: fn (char: u8) bool) callconv(.Inline) void {
+    inline fn readWhile(self: *Tokenizer, condition: fn (char: u8) bool) void {
         for (self.input[self.pos..]) |char| {
             if (!condition(char)) {
                 self.current_char = char;
@@ -362,22 +327,28 @@ pub const Tokenizer = struct {
         return std.ascii.isAlNum(char) or char == '-' or char == '_';
     }
 
-    fn isVariableValue(char: u8) bool {
-        return char != ';' and char != '\r' and char != '\n' and char != '\x00';
+    fn isPropertyValue(char: u8) bool {
+        return isIdentifier(char) or std.ascii.isBlank(char) or char == '#';
     }
 
-    fn close_token(self: *Tokenizer) callconv(.Inline) !void {
+    inline fn close_token(self: *Tokenizer) !void {
         var token = self.tokenization.tokens.pop();
         token.end = self.pos;
         try self.tokenization.tokens.append(token);
     }
-    fn close_token_and_move_to(self: *Tokenizer, state: TokenizerState) callconv(.Inline) !void {
+
+    inline fn close_token_and_move_to(self: *Tokenizer, state: TokenizerState) !void {
         try self.close_token();
         self.state = state;
     }
+
+    inline fn get_last_token(self: *Tokenizer) Token {
+        const tokens = self.tokenization.tokens.items;
+        return tokens[tokens.len - 1];
+    }
 };
 
-test "Class selector" {
+test "Selector - Class selector" {
     const input = ".button{}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -391,7 +362,7 @@ test "Class selector" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Class selector" {
+test "Selector - Identifier can contains dashes" {
     const input = ".big-button{}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -405,7 +376,7 @@ test "Class selector" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Type selector" {
+test "Selector - Type selector" {
     const input = "h1{}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -419,7 +390,7 @@ test "Type selector" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Id selector" {
+test "Selector - Id selector" {
     const input = "#name{}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -433,7 +404,7 @@ test "Id selector" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Whitespaces between identifier and brackets are skipped" {
+test "Selector - Whitespaces between selector and the open bracket are skipped" {
     const input = ".button  \t \r\n {}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -447,7 +418,7 @@ test "Whitespaces between identifier and brackets are skipped" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Property name and value" {
+test "Property - Name and value" {
     const input = ".button{margin:0;}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -464,24 +435,7 @@ test "Property name and value" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Whitespaces between open bracket and property name are skipped" {
-    const input = ".button{ \r\n \t margin:0;}";
-    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
-    defer tokenization.deinit();
-
-    var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
-        Token{ .type = .BlockStart, .start = 7, .end = 8 },
-        Token{ .type = .PropertyName, .start = 14, .end = 20 },
-        Token{ .type = .PropertyValue, .start = 21, .end = 22 },
-        Token{ .type = .EndStatement, .start = 22, .end = 23 },
-        Token{ .type = .BlockEnd, .start = 23, .end = 24 },
-    };
-
-    try expectTokenEquals(&expected, tokenization.tokens.items);
-}
-
-test "Space and tabs between property name and colon are skipped" {
+test "Property - Space and tabs between name and colon are skipped" {
     const input = ".button{margin  \t :0;}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -498,7 +452,7 @@ test "Space and tabs between property name and colon are skipped" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Space and tabs between colon and property value are skipped" {
+test "Property - Space and tabs between colon and value are skipped" {
     const input = ".button{margin: \t  0;}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -515,7 +469,7 @@ test "Space and tabs between colon and property value are skipped" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Space and tabs between property value and semicolon are skipped" {
+test "Property - Space and tabs between the first value character and the semicolon are part of the value" {
     const input = ".button{margin:0 \t  ;}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -524,21 +478,58 @@ test "Space and tabs between property value and semicolon are skipped" {
         Token{ .type = .ClassSelector, .start = 1, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 15, .end = 16 },
+        Token{ .type = .PropertyValue, .start = 15, .end = 20 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
     };
-
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "No CRLF accepted between a property value and its semicolon" {
+test "Property - Value cannot contains CRLF" {
     const input = ".button{margin: 0\r\n;}";
     const failure = Tokenizer.tokenize(std.testing.allocator, input);
     try std.testing.expectError(error.PropertyValueCannotContainCRLF, failure);
 }
 
-test "Whitespaces after semicolon are skipped" {
+test "Property - Value must end with a semicolon" {
+    const input = ".button{margin: 0}";
+    const failure = Tokenizer.tokenize(std.testing.allocator, input);
+
+    try std.testing.expectError(error.PropertyValueMustEndWithASemicolon, failure);
+}
+
+test "Property - Value cannot be only whitespaces" {
+    const input = ".button{margin: \t  ;}";
+    const failure = Tokenizer.tokenize(std.testing.allocator, input);
+
+    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
+}
+
+test "Property - Value cannot be empty" {
+    const input = ".button{margin:;}";
+    const failure = Tokenizer.tokenize(std.testing.allocator, input);
+
+    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
+}
+
+test "Block - Whitespaces between open bracket and identifier character are skipped" {
+    const input = ".button{ \r\n \t margin:0;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var expected: [6]Token = .{
+        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .BlockStart, .start = 7, .end = 8 },
+        Token{ .type = .PropertyName, .start = 14, .end = 20 },
+        Token{ .type = .PropertyValue, .start = 21, .end = 22 },
+        Token{ .type = .EndStatement, .start = 22, .end = 23 },
+        Token{ .type = .BlockEnd, .start = 23, .end = 24 },
+    };
+
+    try expectTokenEquals(&expected, tokenization.tokens.items);
+}
+
+test "Block - Whitespaces after a semicolon are skipped" {
     const input = ".button{margin:0;\r\n\t}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -555,28 +546,7 @@ test "Whitespaces after semicolon are skipped" {
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
 
-test "Property value must end with a semicolon" {
-    const input = ".button{margin: 0}";
-    const failure = Tokenizer.tokenize(std.testing.allocator, input);
-
-    try std.testing.expectError(error.PropertyValueMustEndWithASemicolon, failure);
-}
-
-test "Property value cannot be whitespaces" {
-    const input = ".button{margin: \t  ;}";
-    const failure = Tokenizer.tokenize(std.testing.allocator, input);
-
-    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
-}
-
-test "Property value cannot be empty" {
-    const input = ".button{margin:;}";
-    const failure = Tokenizer.tokenize(std.testing.allocator, input);
-
-    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
-}
-
-test "Multiple properties in a block" {
+test "Block - Multiple properties in a block" {
     const input = ".button{margin:0;padding:0;}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
