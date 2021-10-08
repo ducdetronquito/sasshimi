@@ -5,12 +5,10 @@ const std = @import("std");
 pub const TokenType = enum {
     BlockStart, // {
     BlockEnd, // }
-    ClassSelector, // .button
     EndStatement, // ;
-    IdSelector, // #name
     PropertyName, // margin
     PropertyValue, // 0px
-    TypeSelector, // h1
+    Selector, // h1, .button, #name
     VariableName, // zig-orange
     VariableValue, // #f7a41d
 };
@@ -35,9 +33,7 @@ pub const Tokenization = struct {
 
 pub const TokenizerState = enum {
     Done,
-    SawDot,
     StartBlock,
-    SawSharp,
     Selector,
     SelectorLookup,
     Start,
@@ -98,9 +94,7 @@ pub const Tokenizer = struct {
     inline fn next(self: *Tokenizer) Error!void {
         var result = switch (self.state) {
             .Done => {},
-            .SawDot => self.on_dot(),
             .StartBlock => self.on_start_block(),
-            .SawSharp => self.on_sharp(),
             .Selector => self.on_selector(),
             .SelectorLookup => self.on_selector_lookup(),
             .Start => self.on_start(),
@@ -116,15 +110,13 @@ pub const Tokenizer = struct {
     fn on_start(self: *Tokenizer) Error!void {
         self.skipSpace();
 
-        if (isIdentifier(self.current_char)) {
+        if (isSelectorStart(self.current_char)) {
             self.state = .Selector;
-            try self.tokenization.tokens.append(Token{ .type = .TypeSelector, .start = self.pos });
+            try self.tokenization.tokens.append(Token{ .type = .Selector, .start = self.pos });
             return;
         }
 
         return switch (self.current_char) {
-            '.' => self.state = .SawDot,
-            '#' => self.state = .SawSharp,
             '$' => {
                 try self.readVariable();
             },
@@ -136,45 +128,19 @@ pub const Tokenizer = struct {
     fn on_selector_lookup(self: *Tokenizer) Error!void {
         self.skipSpace();
 
-        if (isIdentifier(self.current_char)) {
+        if (isSelectorStart(self.current_char)) {
             self.state = .Selector;
-            try self.tokenization.tokens.append(Token{ .type = .TypeSelector, .start = self.pos });
+            try self.tokenization.tokens.append(Token{ .type = .Selector, .start = self.pos });
             return;
         }
 
         return switch (self.current_char) {
-            '.' => self.state = .SawDot,
-            '#' => self.state = .SawSharp,
             '{' => {
                 self.state = .StartBlock;
                 try self.tokenization.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
             },
             '\x00' => self.state = .Done,
             else => error.UnexpectedCharacter,
-        };
-    }
-
-    fn on_dot(self: *Tokenizer) Error!void {
-        if (isIdentifier(self.current_char)) {
-            try self.tokenization.tokens.append(Token{ .type = .ClassSelector, .start = self.pos });
-            self.state = .Selector;
-            return;
-        }
-        return switch (self.current_char) {
-            '\x00' => error.UnexpectedEndOfFile,
-            else => error.ClassSelectorCanOnlyContainsAlphaChar,
-        };
-    }
-
-    fn on_sharp(self: *Tokenizer) Error!void {
-        if (isIdentifier(self.current_char)) {
-            try self.tokenization.tokens.append(Token{ .type = .IdSelector, .start = self.pos });
-            self.state = .Selector;
-            return;
-        }
-        return switch (self.current_char) {
-            '\x00' => error.UnexpectedEndOfFile,
-            else => error.IdSelectorCanOnlyContainsAlphaChar,
         };
     }
 
@@ -327,6 +293,10 @@ pub const Tokenizer = struct {
         return std.ascii.isAlNum(char) or char == '-' or char == '_';
     }
 
+    fn isSelectorStart(char: u8) bool {
+        return isIdentifier(char) or char == '.' or char == '#';
+    }
+
     fn isPropertyValue(char: u8) bool {
         return isIdentifier(char) or std.ascii.isBlank(char) or char == '#';
     }
@@ -354,7 +324,7 @@ test "Selector - Class selector" {
     defer tokenization.deinit();
 
     var expected: [3]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .BlockEnd, .start = 8, .end = 9 },
     };
@@ -368,7 +338,7 @@ test "Selector - Identifier can contains dashes" {
     defer tokenization.deinit();
 
     var expected: [3]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 11 },
+        Token{ .type = .Selector, .start = 0, .end = 11 },
         Token{ .type = .BlockStart, .start = 11, .end = 12 },
         Token{ .type = .BlockEnd, .start = 12, .end = 13 },
     };
@@ -382,7 +352,7 @@ test "Selector - Type selector" {
     defer tokenization.deinit();
 
     var expected: [3]Token = .{
-        Token{ .type = .TypeSelector, .start = 0, .end = 2 },
+        Token{ .type = .Selector, .start = 0, .end = 2 },
         Token{ .type = .BlockStart, .start = 2, .end = 3 },
         Token{ .type = .BlockEnd, .start = 3, .end = 4 },
     };
@@ -396,7 +366,7 @@ test "Selector - Id selector" {
     defer tokenization.deinit();
 
     var expected: [3]Token = .{
-        Token{ .type = .IdSelector, .start = 1, .end = 5 },
+        Token{ .type = .Selector, .start = 0, .end = 5 },
         Token{ .type = .BlockStart, .start = 5, .end = 6 },
         Token{ .type = .BlockEnd, .start = 6, .end = 7 },
     };
@@ -410,7 +380,7 @@ test "Selector - Whitespaces between selector and the open bracket are skipped" 
     defer tokenization.deinit();
 
     var expected: [3]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 14, .end = 15 },
         Token{ .type = .BlockEnd, .start = 15, .end = 16 },
     };
@@ -424,7 +394,7 @@ test "Property - Name and value" {
     defer tokenization.deinit();
 
     var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 15, .end = 16 },
@@ -441,7 +411,7 @@ test "Property - Space and tabs between name and colon are skipped" {
     defer tokenization.deinit();
 
     var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 19, .end = 20 },
@@ -458,7 +428,7 @@ test "Property - Space and tabs between colon and value are skipped" {
     defer tokenization.deinit();
 
     var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 19, .end = 20 },
@@ -475,7 +445,7 @@ test "Property - Space and tabs between the first value character and the semico
     defer tokenization.deinit();
 
     var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 15, .end = 20 },
@@ -518,7 +488,7 @@ test "Block - Whitespaces between open bracket and identifier character are skip
     defer tokenization.deinit();
 
     var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 14, .end = 20 },
         Token{ .type = .PropertyValue, .start = 21, .end = 22 },
@@ -535,7 +505,7 @@ test "Block - Whitespaces after a semicolon are skipped" {
     defer tokenization.deinit();
 
     var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 15, .end = 16 },
@@ -552,7 +522,7 @@ test "Block - Multiple properties in a block" {
     defer tokenization.deinit();
 
     var expected: [9]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 15, .end = 16 },
@@ -612,7 +582,7 @@ test "Variable - Within a block" {
     defer tokenization.deinit();
 
     var expected: [6]Token = .{
-        Token{ .type = .ClassSelector, .start = 1, .end = 7 },
+        Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .VariableName, .start = 10, .end = 20 },
         Token{ .type = .VariableValue, .start = 22, .end = 29 },
