@@ -165,42 +165,49 @@ pub const Tokenizer = struct {
     fn on_start_block(self: *Tokenizer) Error!void {
         self.skipSpace();
 
-        if (isIdentifier(self.current_char)) {
-            try self.readProperty();
+        if (self.current_char == '$') {
+            try self.readVariable();
             return;
         }
-        return switch (self.current_char) {
-            '$' => try self.readVariable(),
-            '}' => {
-                self.state = .SelectorLookup;
-                try self.tokenization.tokens.append(Token{ .type = .BlockEnd, .start = self.pos, .end = self.pos + 1 });
-            },
-            '\x00' => error.UnexpectedEndOfFile,
-            else => error.NotImplemented,
-        };
-    }
 
-    fn readProperty(self: *Tokenizer) !void {
-        try self.readPropertyName();
-        try self.readPropertyValue();
-    }
+        if (isIdentifier(self.current_char) or isSelectorStart(self.current_char)) {
+            try self.tokenization.tokens.append(Token{ .type = undefined, .start = self.pos, .end = undefined });
+            self.readWhile(isIdentifier);
+            try self.close_token();
+            self.skipSpace();
+            switch (self.current_char) {
+                ':' => {
+                    var token = self.get_last_token();
+                    token.type = .PropertyName;
+                    self.pos += 1;
 
-    fn readPropertyName(self: *Tokenizer) !void {
-        if (!isIdentifier(self.current_char)) {
-            return error.PropertyNameCanOnlyContainsAlphaChar;
+                    try self.readPropertyValue();
+                    token = self.get_last_token();
+                    return;
+                },
+                '{' => {
+                    var token = self.get_last_token();
+                    token.type = .Selector;
+                    try self.tokenization.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
+                    return;
+                },
+                ',', '+', '>' => {
+                    //Last Token is a Selector, stay on state BlockStart
+                    return error.NotImplemented;
+                },
+                else => {
+                    return error.NotImplemented;
+                },
+            }
         }
 
-        try self.tokenization.tokens.append(Token{ .type = .PropertyName, .start = self.pos });
-        self.readWhile(isIdentifier);
-        try self.close_token();
-
-        self.skipBlank();
-
         return switch (self.current_char) {
-            ':' => self.pos += 1,
-            '\x00' => error.UnexpectedEndOfFile,
-            '\r', '\n' => error.PropertyNameCannotContainCRLF,
-            else => error.UnexpectedCharacter,
+            '}' => {
+                self.state = .StartBlock;
+                try self.tokenization.tokens.append(Token{ .type = .BlockEnd, .start = self.pos, .end = self.pos + 1 });
+            },
+            '\x00' => self.state = .Done,
+            else => error.NotImplemented,
         };
     }
 
@@ -312,9 +319,9 @@ pub const Tokenizer = struct {
         self.state = state;
     }
 
-    inline fn get_last_token(self: *Tokenizer) Token {
+    inline fn get_last_token(self: *Tokenizer) *Token {
         const tokens = self.tokenization.tokens.items;
-        return tokens[tokens.len - 1];
+        return &tokens[tokens.len - 1];
     }
 };
 
@@ -588,6 +595,63 @@ test "Variable - Within a block" {
         Token{ .type = .VariableValue, .start = 22, .end = 29 },
         Token{ .type = .EndStatement, .start = 29, .end = 30 },
         Token{ .type = .BlockEnd, .start = 30, .end = 31 },
+    };
+    try expectTokenEquals(&expected, tokenization.tokens.items);
+}
+
+test "Block - Nested block" {
+    const input = ".button{h1{margin:0;}}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+    var expected: [9]Token = .{
+        Token{ .type = .Selector, .start = 0, .end = 7 },
+        Token{ .type = .BlockStart, .start = 7, .end = 8 },
+        Token{ .type = .Selector, .start = 8, .end = 10 },
+        Token{ .type = .BlockStart, .start = 10, .end = 11 },
+        Token{ .type = .PropertyName, .start = 11, .end = 17 },
+        Token{ .type = .PropertyValue, .start = 18, .end = 19 },
+        Token{ .type = .EndStatement, .start = 19, .end = 20 },
+        Token{ .type = .BlockEnd, .start = 20, .end = 21 },
+        Token{ .type = .BlockEnd, .start = 21, .end = 22 },
+    };
+    try expectTokenEquals(&expected, tokenization.tokens.items);
+}
+
+test "Block - Multiple nested block" {
+    const input = ".button{h1{margin:0;} h2{margin:0;}}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+    var expected: [15]Token = .{
+        Token{ .type = .Selector, .start = 0, .end = 7 },
+        Token{ .type = .BlockStart, .start = 7, .end = 8 },
+        Token{ .type = .Selector, .start = 8, .end = 10 },
+        Token{ .type = .BlockStart, .start = 10, .end = 11 },
+        Token{ .type = .PropertyName, .start = 11, .end = 17 },
+        Token{ .type = .PropertyValue, .start = 18, .end = 19 },
+        Token{ .type = .EndStatement, .start = 19, .end = 20 },
+        Token{ .type = .BlockEnd, .start = 20, .end = 21 },
+        Token{ .type = .Selector, .start = 22, .end = 24 },
+        Token{ .type = .BlockStart, .start = 24, .end = 25 },
+        Token{ .type = .PropertyName, .start = 25, .end = 31 },
+        Token{ .type = .PropertyValue, .start = 32, .end = 33 },
+        Token{ .type = .EndStatement, .start = 33, .end = 34 },
+        Token{ .type = .BlockEnd, .start = 34, .end = 35 },
+        Token{ .type = .BlockEnd, .start = 35, .end = 36 },
+    };
+    try expectTokenEquals(&expected, tokenization.tokens.items);
+}
+
+test "Block - Empty nested block" {
+    const input = ".button{h1{}}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+    var expected: [6]Token = .{
+        Token{ .type = .Selector, .start = 0, .end = 7 },
+        Token{ .type = .BlockStart, .start = 7, .end = 8 },
+        Token{ .type = .Selector, .start = 8, .end = 10 },
+        Token{ .type = .BlockStart, .start = 10, .end = 11 },
+        Token{ .type = .BlockEnd, .start = 11, .end = 12 },
+        Token{ .type = .BlockEnd, .start = 12, .end = 13 },
     };
     try expectTokenEquals(&expected, tokenization.tokens.items);
 }
