@@ -81,11 +81,16 @@ fn parse_style_rules(context: *Context) ![]StyleRule {
 
 fn parse_style_rule(context: *Context) !StyleRule {
     var token = context.eat_token();
-    var selector: Selector = switch (token.type) {
-        .ClassSelector => .{ .ClassSelector = context.get_token_value(token) },
-        .IdSelector => .{ .IdSelector = context.get_token_value(token) },
-        .TypeSelector => .{ .TypeSelector = context.get_token_value(token) },
-        else => return error.NotImplemented,
+    var value = context.get_token_value(token);
+
+    if (token.type != .Selector) {
+        return error.NotImplemented;
+    }
+
+    var selector: Selector = switch (value[0]) {
+        '.' => .{ .ClassSelector = value },
+        '#' => .{ .IdSelector = value },
+        else => .{ .TypeSelector = value },
     };
 
     var properties = try parse_properties(context);
@@ -126,7 +131,7 @@ test "Class selector" {
 
     try expectEqual(root.style_sheet.style_rules.len, 1);
     const rule = root.style_sheet.style_rules[0];
-    try expectEqualStrings(rule.selector.ClassSelector, "button");
+    try expectEqualStrings(rule.selector.ClassSelector, ".button");
     try expectEqual(rule.properties.len, 0);
 }
 
@@ -138,7 +143,7 @@ test "Id selector" {
 
     try expectEqual(root.style_sheet.style_rules.len, 1);
     const rule = root.style_sheet.style_rules[0];
-    try expectEqualStrings(rule.selector.IdSelector, "name");
+    try expectEqualStrings(rule.selector.IdSelector, "#name");
     try expectEqual(rule.properties.len, 0);
 }
 
@@ -162,7 +167,7 @@ test "Style rule with properties" {
 
     try expectEqual(root.style_sheet.style_rules.len, 1);
     const rule = root.style_sheet.style_rules[0];
-    try expectEqualStrings(rule.selector.ClassSelector, "button");
+    try expectEqualStrings(rule.selector.ClassSelector, ".button");
     try expectEqual(rule.properties.len, 2);
     try expectEqualStrings(rule.properties[0].name, "margin");
     try expectEqualStrings(rule.properties[0].value, "0px");
