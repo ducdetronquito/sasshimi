@@ -20,14 +20,16 @@ pub const Token = struct {
 };
 
 pub const Tokenization = struct {
-    tokens: ArrayList(Token),
+    allocator: *Allocator,
+    tokens: []Token,
+    input: []const u8,
 
-    pub fn init(allocator: *Allocator) Tokenization {
-        return .{ .tokens = ArrayList(Token).init(allocator) };
+    pub fn init(allocator: *Allocator, input: []const u8, tokens: []Token) Tokenization {
+        return .{ .allocator = allocator, .input = input, .tokens = tokens };
     }
 
     pub fn deinit(self: *Tokenization) void {
-        self.tokens.deinit();
+        self.allocator.free(self.tokens);
     }
 };
 
@@ -64,16 +66,16 @@ pub const Tokenizer = struct {
     input: []const u8,
     pos: usize = 0,
     state: TokenizerState = .Start,
-    tokenization: Tokenization,
+    tokens: ArrayList(Token),
 
     fn init(allocator: *Allocator, input: []const u8) Tokenizer {
-        return .{ .input = input, .state = .Start, .tokenization = Tokenization.init(allocator) };
+        return .{ .input = input, .state = .Start, .tokens = ArrayList(Token).init(allocator) };
     }
 
     fn deinit(self: *Tokenizer) void {
         self.state = .Start;
         self.current_char = '\x00';
-        self.tokenization.deinit();
+        self.tokens.deinit();
     }
 
     pub fn tokenize(allocator: *Allocator, input: []const u8) Error!Tokenization {
@@ -88,7 +90,7 @@ pub const Tokenizer = struct {
         tokenizer.current_char = '\x00';
         try tokenizer.next();
 
-        return tokenizer.tokenization;
+        return Tokenization.init(allocator, input, tokenizer.tokens.toOwnedSlice());
     }
 
     inline fn next(self: *Tokenizer) Error!void {
@@ -112,7 +114,7 @@ pub const Tokenizer = struct {
 
         if (isSelectorStart(self.current_char)) {
             self.state = .Selector;
-            try self.tokenization.tokens.append(Token{ .type = .Selector, .start = self.pos });
+            try self.tokens.append(Token{ .type = .Selector, .start = self.pos });
             return;
         }
 
@@ -130,14 +132,14 @@ pub const Tokenizer = struct {
 
         if (isSelectorStart(self.current_char)) {
             self.state = .Selector;
-            try self.tokenization.tokens.append(Token{ .type = .Selector, .start = self.pos });
+            try self.tokens.append(Token{ .type = .Selector, .start = self.pos });
             return;
         }
 
         return switch (self.current_char) {
             '{' => {
                 self.state = .StartBlock;
-                try self.tokenization.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
+                try self.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
             },
             '\x00' => self.state = .Done,
             else => error.UnexpectedCharacter,
@@ -155,7 +157,7 @@ pub const Tokenizer = struct {
         return switch (self.current_char) {
             '{' => {
                 try self.close_token_and_move_to(.StartBlock);
-                try self.tokenization.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
+                try self.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
             },
             '\x00' => error.UnexpectedEndOfFile,
             else => error.IdentifierCanOnlyContainsAlphaChar,
@@ -171,7 +173,7 @@ pub const Tokenizer = struct {
         }
 
         if (isIdentifier(self.current_char) or isSelectorStart(self.current_char)) {
-            try self.tokenization.tokens.append(Token{ .type = undefined, .start = self.pos, .end = undefined });
+            try self.tokens.append(Token{ .type = undefined, .start = self.pos, .end = undefined });
             self.readWhile(isIdentifier);
             try self.close_token();
             self.skipSpace();
@@ -188,7 +190,7 @@ pub const Tokenizer = struct {
                 '{' => {
                     var token = self.get_last_token();
                     token.type = .Selector;
-                    try self.tokenization.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
+                    try self.tokens.append(Token{ .type = .BlockStart, .start = self.pos, .end = self.pos + 1 });
                     return;
                 },
                 ',', '+', '>' => {
@@ -204,7 +206,7 @@ pub const Tokenizer = struct {
         return switch (self.current_char) {
             '}' => {
                 self.state = .StartBlock;
-                try self.tokenization.tokens.append(Token{ .type = .BlockEnd, .start = self.pos, .end = self.pos + 1 });
+                try self.tokens.append(Token{ .type = .BlockEnd, .start = self.pos, .end = self.pos + 1 });
             },
             '\x00' => self.state = .Done,
             else => error.NotImplemented,
@@ -214,7 +216,7 @@ pub const Tokenizer = struct {
     fn readPropertyValue(self: *Tokenizer) !void {
         self.skipBlank();
 
-        try self.tokenization.tokens.append(Token{ .type = .PropertyValue, .start = self.pos });
+        try self.tokens.append(Token{ .type = .PropertyValue, .start = self.pos });
         self.readWhile(isPropertyValue);
         try self.close_token();
 
@@ -224,7 +226,7 @@ pub const Tokenizer = struct {
                 if (property_value.start == property_value.end) {
                     return error.PropertyValueCannotBeEmpty;
                 }
-                try self.tokenization.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
+                try self.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
             },
             '}' => error.PropertyValueMustEndWithASemicolon,
             '\r', '\n' => error.PropertyValueCannotContainCRLF,
@@ -245,7 +247,7 @@ pub const Tokenizer = struct {
             return error.VariableNameCanOnlyContainsAlphaChar;
         }
 
-        try self.tokenization.tokens.append(Token{ .type = .VariableName, .start = self.pos });
+        try self.tokens.append(Token{ .type = .VariableName, .start = self.pos });
         self.readWhile(isIdentifier);
         try self.close_token();
 
@@ -262,7 +264,7 @@ pub const Tokenizer = struct {
     fn readVariableValue(self: *Tokenizer) Error!void {
         self.skipBlank();
 
-        try self.tokenization.tokens.append(Token{ .type = .VariableValue, .start = self.pos });
+        try self.tokens.append(Token{ .type = .VariableValue, .start = self.pos });
         self.readWhile(isPropertyValue);
 
         self.skipBlank();
@@ -270,7 +272,7 @@ pub const Tokenizer = struct {
         return switch (self.current_char) {
             ';' => {
                 try self.close_token();
-                try self.tokenization.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
+                try self.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
             },
             '\r', '\n' => error.VariableValueCannotContainCRLF,
             '\x00' => error.UnexpectedEndOfFile,
@@ -309,9 +311,9 @@ pub const Tokenizer = struct {
     }
 
     inline fn close_token(self: *Tokenizer) !void {
-        var token = self.tokenization.tokens.pop();
+        var token = self.tokens.pop();
         token.end = self.pos;
-        try self.tokenization.tokens.append(token);
+        try self.tokens.append(token);
     }
 
     inline fn close_token_and_move_to(self: *Tokenizer, state: TokenizerState) !void {
@@ -320,7 +322,7 @@ pub const Tokenizer = struct {
     }
 
     inline fn get_last_token(self: *Tokenizer) *Token {
-        const tokens = self.tokenization.tokens.items;
+        const tokens = self.tokens.items;
         return &tokens[tokens.len - 1];
     }
 };
@@ -336,7 +338,7 @@ test "Selector - Class selector" {
         Token{ .type = .BlockEnd, .start = 8, .end = 9 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Selector - Identifier can contains dashes" {
@@ -350,7 +352,7 @@ test "Selector - Identifier can contains dashes" {
         Token{ .type = .BlockEnd, .start = 12, .end = 13 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Selector - Type selector" {
@@ -364,7 +366,7 @@ test "Selector - Type selector" {
         Token{ .type = .BlockEnd, .start = 3, .end = 4 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Selector - Id selector" {
@@ -378,7 +380,7 @@ test "Selector - Id selector" {
         Token{ .type = .BlockEnd, .start = 6, .end = 7 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Selector - Whitespaces between selector and the open bracket are skipped" {
@@ -392,7 +394,7 @@ test "Selector - Whitespaces between selector and the open bracket are skipped" 
         Token{ .type = .BlockEnd, .start = 15, .end = 16 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Property - Name and value" {
@@ -409,7 +411,7 @@ test "Property - Name and value" {
         Token{ .type = .BlockEnd, .start = 17, .end = 18 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Property - Space and tabs between name and colon are skipped" {
@@ -426,7 +428,7 @@ test "Property - Space and tabs between name and colon are skipped" {
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Property - Space and tabs between colon and value are skipped" {
@@ -443,7 +445,7 @@ test "Property - Space and tabs between colon and value are skipped" {
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Property - Space and tabs between the first value character and the semicolon are part of the value" {
@@ -459,7 +461,7 @@ test "Property - Space and tabs between the first value character and the semico
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
     };
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Property - Value cannot contains CRLF" {
@@ -503,7 +505,7 @@ test "Block - Whitespaces between open bracket and identifier character are skip
         Token{ .type = .BlockEnd, .start = 23, .end = 24 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Block - Whitespaces after a semicolon are skipped" {
@@ -520,7 +522,7 @@ test "Block - Whitespaces after a semicolon are skipped" {
         Token{ .type = .BlockEnd, .start = 20, .end = 21 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Block - Multiple properties in a block" {
@@ -540,7 +542,7 @@ test "Block - Multiple properties in a block" {
         Token{ .type = .BlockEnd, .start = 27, .end = 28 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Variable" {
@@ -553,7 +555,7 @@ test "Variable" {
         Token{ .type = .VariableValue, .start = 12, .end = 19 },
         Token{ .type = .EndStatement, .start = 19, .end = 20 },
     };
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Variable - Space and tabs between variable name and colon are skipped" {
@@ -566,7 +568,7 @@ test "Variable - Space and tabs between variable name and colon are skipped" {
         Token{ .type = .VariableValue, .start = 16, .end = 23 },
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
     };
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Variable - Space and tabs between variable value and semicolon are part of the variable value" {
@@ -580,7 +582,7 @@ test "Variable - Space and tabs between variable value and semicolon are part of
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
     };
 
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Variable - Within a block" {
@@ -596,7 +598,7 @@ test "Variable - Within a block" {
         Token{ .type = .EndStatement, .start = 29, .end = 30 },
         Token{ .type = .BlockEnd, .start = 30, .end = 31 },
     };
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Block - Nested block" {
@@ -614,7 +616,7 @@ test "Block - Nested block" {
         Token{ .type = .BlockEnd, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
     };
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Block - Multiple nested block" {
@@ -638,7 +640,7 @@ test "Block - Multiple nested block" {
         Token{ .type = .BlockEnd, .start = 34, .end = 35 },
         Token{ .type = .BlockEnd, .start = 35, .end = 36 },
     };
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 test "Block - Empty nested block" {
@@ -653,7 +655,7 @@ test "Block - Empty nested block" {
         Token{ .type = .BlockEnd, .start = 11, .end = 12 },
         Token{ .type = .BlockEnd, .start = 12, .end = 13 },
     };
-    try expectTokenEquals(&expected, tokenization.tokens.items);
+    try expectTokenEquals(&expected, tokenization.tokens);
 }
 
 fn expectTokenEquals(expected: []Token, actual: []Token) !void {
