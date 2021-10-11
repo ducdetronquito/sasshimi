@@ -18,6 +18,7 @@ pub const StyleSheet = struct {
 pub const StyleRule = struct {
     properties: []Property,
     selector: Selector,
+    style_rules: []StyleRule,
 };
 
 pub const Property = struct {
@@ -44,15 +45,24 @@ const Context = struct {
     source: []const u8,
     tokens: []Token,
 
-    pub fn eat_token(self: *Context) Token {
-        var token = self.tokens[self.current_token];
+    pub inline fn eat_token(self: *Context) Token {
+        var token = self.peek_token();
         self.current_token += 1;
         return token;
     }
 
-    pub fn get_token_value(self: *Context, token: Token) []const u8 {
+    pub inline fn peek_token(self: *Context) Token {
+        return self.tokens[self.current_token];
+    }
+
+    pub inline fn get_token_value(self: *Context, token: Token) []const u8 {
         return self.source[token.start..token.end];
     }
+};
+
+pub const ParserError = error{
+    NotImplemented,
+    OutOfMemory,
 };
 
 pub fn parse(allocator: *Allocator, input: []const u8) !Root {
@@ -79,7 +89,7 @@ fn parse_style_rules(context: *Context) ![]StyleRule {
     return rules.toOwnedSlice();
 }
 
-fn parse_style_rule(context: *Context) !StyleRule {
+fn parse_selector(context: *Context) !Selector {
     var token = context.eat_token();
     var value = context.get_token_value(token);
 
@@ -87,37 +97,60 @@ fn parse_style_rule(context: *Context) !StyleRule {
         return error.NotImplemented;
     }
 
-    var selector: Selector = switch (value[0]) {
+    return switch (value[0]) {
         '.' => .{ .ClassSelector = value },
         '#' => .{ .IdSelector = value },
         else => .{ .TypeSelector = value },
     };
-
-    var properties = try parse_properties(context);
-    return StyleRule{ .properties = properties, .selector = selector };
 }
 
-fn parse_properties(context: *Context) ![]Property {
+fn parse_style_rule(context: *Context) ParserError!StyleRule {
+    var selector = try parse_selector(context);
+
     var token = context.eat_token();
     assert(token.type == .BlockStart);
 
     var properties = ArrayList(Property).init(context.allocator);
+    errdefer properties.deinit();
+
+    var style_rules = ArrayList(StyleRule).init(context.allocator);
+    errdefer style_rules.deinit();
+
     while (true) {
-        token = context.eat_token();
-        if (token.type == .BlockEnd) {
-            break;
+        token = context.peek_token();
+        switch (token.type) {
+            .PropertyName => {
+                var property = try parse_property(context);
+                try properties.append(property);
+            },
+            .Selector => {
+                var style_rule = try parse_style_rule(context);
+                try style_rules.append(style_rule);
+            },
+            .BlockEnd => break,
+            else => return error.NotImplemented,
         }
-
-        const property_value = context.eat_token();
-        try properties.append(.{
-            .name = context.get_token_value(token),
-            .value = context.get_token_value(property_value),
-        });
-
-        const end_statement = context.eat_token();
-        _ = end_statement;
     }
-    return properties.toOwnedSlice();
+
+    return StyleRule{ .properties = properties.toOwnedSlice(), .selector = selector, .style_rules = style_rules.toOwnedSlice() };
+}
+
+fn parse_property(context: *Context) !Property {
+    const property_name = context.eat_token();
+    assert(property_name.type == .PropertyName);
+
+    const property_value = context.eat_token();
+    assert(property_value.type == .PropertyValue);
+
+    var property = Property{
+        .name = context.get_token_value(property_name),
+        .value = context.get_token_value(property_value),
+    };
+
+    const token = context.eat_token();
+    assert(token.type == .EndStatement);
+
+    return property;
 }
 
 const expectEqual = std.testing.expectEqual;
@@ -173,4 +206,25 @@ test "Style rule with properties" {
     try expectEqualStrings(rule.properties[0].value, "0px");
     try expectEqualStrings(rule.properties[1].name, "padding");
     try expectEqualStrings(rule.properties[1].value, "0px");
+}
+
+test "Nested style rules" {
+    const input = ".button{ margin: 0px; h1 { color: red; } }";
+    var arena = ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var root = try parse(&arena.allocator, input);
+
+    try expectEqual(root.style_sheet.style_rules.len, 1);
+    const rule = root.style_sheet.style_rules[0];
+    try expectEqualStrings(rule.selector.ClassSelector, ".button");
+    try expectEqual(rule.properties.len, 1);
+    try expectEqualStrings(rule.properties[0].name, "margin");
+    try expectEqualStrings(rule.properties[0].value, "0px");
+
+    try expectEqual(rule.style_rules.len, 1);
+    const nested_rule = rule.style_rules[0];
+    try expectEqualStrings(nested_rule.selector.TypeSelector, "h1");
+    try expectEqual(nested_rule.properties.len, 1);
+    try expectEqualStrings(nested_rule.properties[0].name, "color");
+    try expectEqualStrings(nested_rule.properties[0].value, "red");
 }
