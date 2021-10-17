@@ -17,11 +17,11 @@ pub const Root = struct {
     }
 };
 
-pub const StyleSheet = struct {
+const StyleSheet = struct {
     style_rules: []StyleRule,
 
     pub fn deinit(self: StyleSheet, allocator: *Allocator) void {
-        for(self.style_rules) |style_rule| {
+        for (self.style_rules) |style_rule| {
             style_rule.deinit(allocator);
         }
         allocator.free(self.style_rules);
@@ -42,12 +42,12 @@ pub const StyleRule = struct {
     }
 };
 
-pub const Property = struct {
+const Property = struct {
     name: []const u8,
     value: []const u8,
 };
 
-pub const Selector = []const u8;
+const Selector = []const u8;
 
 const Context = struct {
     allocator: *Allocator,
