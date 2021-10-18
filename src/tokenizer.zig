@@ -5,6 +5,7 @@ const std = @import("std");
 pub const TokenType = enum {
     BlockStart, // {
     BlockEnd, // }
+    EndOfFile,
     EndStatement, // ;
     PropertyName, // margin
     PropertyValue, // 0px
@@ -89,7 +90,7 @@ pub const Tokenizer = struct {
 
         tokenizer.current_char = '\x00';
         try tokenizer.next();
-
+        try tokenizer.tokens.append(.{ .type = .EndOfFile, .start = tokenizer.pos - 1, .end = tokenizer.pos });
         return Tokenization.init(allocator, input, tokenizer.tokens.toOwnedSlice());
     }
 
@@ -332,10 +333,11 @@ test "Selector - Class selector" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .BlockEnd, .start = 8, .end = 9 },
+        Token{ .type = .EndOfFile, .start = 9, .end = 10 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -346,10 +348,11 @@ test "Selector - Identifier can contains dashes" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 11 },
         Token{ .type = .BlockStart, .start = 11, .end = 12 },
         Token{ .type = .BlockEnd, .start = 12, .end = 13 },
+        Token{ .type = .EndOfFile, .start = 13, .end = 14 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -360,10 +363,11 @@ test "Selector - Type selector" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 2 },
         Token{ .type = .BlockStart, .start = 2, .end = 3 },
         Token{ .type = .BlockEnd, .start = 3, .end = 4 },
+        Token{ .type = .EndOfFile, .start = 4, .end = 5 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -374,10 +378,11 @@ test "Selector - Id selector" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 5 },
         Token{ .type = .BlockStart, .start = 5, .end = 6 },
         Token{ .type = .BlockEnd, .start = 6, .end = 7 },
+        Token{ .type = .EndOfFile, .start = 7, .end = 8 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -388,10 +393,11 @@ test "Selector - Whitespaces between selector and the open bracket are skipped" 
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 14, .end = 15 },
         Token{ .type = .BlockEnd, .start = 15, .end = 16 },
+        Token{ .type = .EndOfFile, .start = 16, .end = 17 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -402,13 +408,14 @@ test "Property - Name and value" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 15, .end = 16 },
         Token{ .type = .EndStatement, .start = 16, .end = 17 },
         Token{ .type = .BlockEnd, .start = 17, .end = 18 },
+        Token{ .type = .EndOfFile, .start = 18, .end = 19 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -419,13 +426,14 @@ test "Property - Space and tabs between name and colon are skipped" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 19, .end = 20 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
+        Token{ .type = .EndOfFile, .start = 22, .end = 23 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -436,13 +444,14 @@ test "Property - Space and tabs between colon and value are skipped" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 19, .end = 20 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
+        Token{ .type = .EndOfFile, .start = 22, .end = 23 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -453,13 +462,14 @@ test "Property - Space and tabs between the first value character and the semico
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 15, .end = 20 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
+        Token{ .type = .EndOfFile, .start = 22, .end = 23 },
     };
     try expectTokenEquals(&expected, tokenization.tokens);
 }
@@ -496,13 +506,14 @@ test "Block - Whitespaces between open bracket and identifier character are skip
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 14, .end = 20 },
         Token{ .type = .PropertyValue, .start = 21, .end = 22 },
         Token{ .type = .EndStatement, .start = 22, .end = 23 },
         Token{ .type = .BlockEnd, .start = 23, .end = 24 },
+        Token{ .type = .EndOfFile, .start = 24, .end = 25 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -513,13 +524,14 @@ test "Block - Whitespaces after a semicolon are skipped" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
         Token{ .type = .PropertyValue, .start = 15, .end = 16 },
         Token{ .type = .EndStatement, .start = 16, .end = 17 },
         Token{ .type = .BlockEnd, .start = 20, .end = 21 },
+        Token{ .type = .EndOfFile, .start = 21, .end = 22 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -530,7 +542,7 @@ test "Block - Multiple properties in a block" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [9]Token = .{
+    var expected: [10]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
@@ -540,6 +552,7 @@ test "Block - Multiple properties in a block" {
         Token{ .type = .PropertyValue, .start = 25, .end = 26 },
         Token{ .type = .EndStatement, .start = 26, .end = 27 },
         Token{ .type = .BlockEnd, .start = 27, .end = 28 },
+        Token{ .type = .EndOfFile, .start = 28, .end = 29 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -550,10 +563,11 @@ test "Variable" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .VariableName, .start = 1, .end = 11 },
         Token{ .type = .VariableValue, .start = 12, .end = 19 },
         Token{ .type = .EndStatement, .start = 19, .end = 20 },
+        Token{ .type = .EndOfFile, .start = 20, .end = 21 },
     };
     try expectTokenEquals(&expected, tokenization.tokens);
 }
@@ -563,10 +577,11 @@ test "Variable - Space and tabs between variable name and colon are skipped" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .VariableName, .start = 1, .end = 11 },
         Token{ .type = .VariableValue, .start = 16, .end = 23 },
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
+        Token{ .type = .EndOfFile, .start = 24, .end = 25 },
     };
     try expectTokenEquals(&expected, tokenization.tokens);
 }
@@ -576,10 +591,11 @@ test "Variable - Space and tabs between variable value and semicolon are part of
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [3]Token = .{
+    var expected: [4]Token = .{
         Token{ .type = .VariableName, .start = 1, .end = 11 },
         Token{ .type = .VariableValue, .start = 13, .end = 23 },
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
+        Token{ .type = .EndOfFile, .start = 24, .end = 25 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -590,13 +606,14 @@ test "Variable - Within a block" {
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .VariableName, .start = 10, .end = 20 },
         Token{ .type = .VariableValue, .start = 22, .end = 29 },
         Token{ .type = .EndStatement, .start = 29, .end = 30 },
         Token{ .type = .BlockEnd, .start = 30, .end = 31 },
+        Token{ .type = .EndOfFile, .start = 31, .end = 32 },
     };
     try expectTokenEquals(&expected, tokenization.tokens);
 }
@@ -605,7 +622,7 @@ test "Block - Nested block" {
     const input = ".button{h1{margin:0;}}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
-    var expected: [9]Token = .{
+    var expected: [10]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .Selector, .start = 8, .end = 10 },
@@ -615,6 +632,7 @@ test "Block - Nested block" {
         Token{ .type = .EndStatement, .start = 19, .end = 20 },
         Token{ .type = .BlockEnd, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
+        Token{ .type = .EndOfFile, .start = 22, .end = 23 },
     };
     try expectTokenEquals(&expected, tokenization.tokens);
 }
@@ -623,7 +641,7 @@ test "Block - Multiple nested block" {
     const input = ".button{h1{margin:0;} h2{margin:0;}}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
-    var expected: [15]Token = .{
+    var expected: [16]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .Selector, .start = 8, .end = 10 },
@@ -639,6 +657,7 @@ test "Block - Multiple nested block" {
         Token{ .type = .EndStatement, .start = 33, .end = 34 },
         Token{ .type = .BlockEnd, .start = 34, .end = 35 },
         Token{ .type = .BlockEnd, .start = 35, .end = 36 },
+        Token{ .type = .EndOfFile, .start = 36, .end = 37 },
     };
     try expectTokenEquals(&expected, tokenization.tokens);
 }
@@ -647,13 +666,14 @@ test "Block - Empty nested block" {
     const input = ".button{h1{}}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
-    var expected: [6]Token = .{
+    var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .Selector, .start = 8, .end = 10 },
         Token{ .type = .BlockStart, .start = 10, .end = 11 },
         Token{ .type = .BlockEnd, .start = 11, .end = 12 },
         Token{ .type = .BlockEnd, .start = 12, .end = 13 },
+        Token{ .type = .EndOfFile, .start = 13, .end = 14 },
     };
     try expectTokenEquals(&expected, tokenization.tokens);
 }
