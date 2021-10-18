@@ -92,8 +92,17 @@ fn parse_style_sheet(context: *Context) !void {
 
 fn parse_style_rules(context: *Context) ![]StyleRule {
     var rules = ArrayList(StyleRule).init(context.allocator);
-    var rule = try parse_style_rule(context);
-    try rules.append(rule);
+    errdefer rules.deinit();
+
+    while (true) {
+        const token = context.peek_token();
+        if (token.type == .EndOfFile) {
+            break;
+        }
+        var rule = try parse_style_rule(context);
+        try rules.append(rule);
+    }
+
     return rules.toOwnedSlice();
 }
 
@@ -131,7 +140,10 @@ fn parse_style_rule(context: *Context) ParserError!StyleRule {
                 var style_rule = try parse_style_rule(context);
                 try style_rules.append(style_rule);
             },
-            .BlockEnd => break,
+            .BlockEnd => {
+                _ = context.eat_token();
+                break;
+            },
             else => return error.NotImplemented,
         }
     }
