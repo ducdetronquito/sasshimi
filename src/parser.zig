@@ -19,12 +19,14 @@ pub const Root = struct {
 
 const StyleSheet = struct {
     style_rules: []StyleRule,
+    variables: []Variable,
 
     pub fn deinit(self: StyleSheet, allocator: *Allocator) void {
         for (self.style_rules) |style_rule| {
             style_rule.deinit(allocator);
         }
         allocator.free(self.style_rules);
+        allocator.free(self.variables);
     }
 };
 
@@ -32,6 +34,7 @@ pub const StyleRule = struct {
     properties: []Property,
     selector: Selector,
     style_rules: []StyleRule,
+    variables: []Variable,
 
     pub fn deinit(self: StyleRule, allocator: *Allocator) void {
         allocator.free(self.properties);
@@ -39,6 +42,7 @@ pub const StyleRule = struct {
             style_stule.deinit(allocator);
         }
         allocator.free(self.style_rules);
+        allocator.free(self.variables);
     }
 };
 
@@ -48,6 +52,11 @@ const Property = struct {
 };
 
 const Selector = []const u8;
+
+const Variable = struct {
+    name: []const u8,
+    value: []const u8,
+};
 
 const Context = struct {
     allocator: *Allocator,
@@ -86,24 +95,45 @@ pub fn parse(allocator: *Allocator, tokenization: Tokenization) !Root {
 }
 
 fn parse_style_sheet(context: *Context) !void {
-    var style_rules = try parse_style_rules(context);
-    context.root.style_sheet = StyleSheet{ .style_rules = style_rules };
-}
-
-fn parse_style_rules(context: *Context) ![]StyleRule {
     var rules = ArrayList(StyleRule).init(context.allocator);
     errdefer rules.deinit();
 
+    var variables = ArrayList(Variable).init(context.allocator);
+    errdefer variables.deinit();
+
     while (true) {
         const token = context.peek_token();
-        if (token.type == .EndOfFile) {
-            break;
+        switch (token.type) {
+            .VariableName => {
+                var variable = try parse_variable(context);
+                try variables.append(variable);
+            },
+            .Selector => {
+                var rule = try parse_style_rule(context);
+                try rules.append(rule);
+            },
+            .EndOfFile => break,
+            else => return error.NotImplemented,
         }
-        var rule = try parse_style_rule(context);
-        try rules.append(rule);
     }
 
-    return rules.toOwnedSlice();
+    var style_sheet = StyleSheet{ .style_rules = rules.toOwnedSlice(), .variables = variables.toOwnedSlice() };
+    context.root.style_sheet = style_sheet;
+}
+
+fn parse_variable(context: *Context) !Variable {
+    var token = context.eat_token();
+    assert(token.type == .VariableName);
+    const name = context.get_token_value(token);
+
+    token = context.eat_token();
+    assert(token.type == .VariableValue);
+    const value = context.get_token_value(token);
+
+    token = context.eat_token();
+    assert(token.type == .EndStatement);
+
+    return Variable{ .name = name, .value = value };
 }
 
 fn parse_selector(context: *Context) !Selector {
@@ -129,9 +159,16 @@ fn parse_style_rule(context: *Context) ParserError!StyleRule {
     var style_rules = ArrayList(StyleRule).init(context.allocator);
     errdefer style_rules.deinit();
 
+    var variables = ArrayList(Variable).init(context.allocator);
+    errdefer variables.deinit();
+
     while (true) {
         token = context.peek_token();
         switch (token.type) {
+            .VariableName => {
+                var variable = try parse_variable(context);
+                try variables.append(variable);
+            },
             .PropertyName => {
                 var property = try parse_property(context);
                 try properties.append(property);
@@ -148,7 +185,7 @@ fn parse_style_rule(context: *Context) ParserError!StyleRule {
         }
     }
 
-    return StyleRule{ .properties = properties.toOwnedSlice(), .selector = selector, .style_rules = style_rules.toOwnedSlice() };
+    return StyleRule{ .properties = properties.toOwnedSlice(), .selector = selector, .style_rules = style_rules.toOwnedSlice(), .variables = variables.toOwnedSlice() };
 }
 
 fn parse_property(context: *Context) !Property {
@@ -184,6 +221,7 @@ test "Class selector" {
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.selector, ".button");
     try expectEqual(rule.properties.len, 0);
+    try expectEqual(rule.variables.len, 0);
 }
 
 test "Id selector" {
@@ -198,6 +236,7 @@ test "Id selector" {
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.selector, "#name");
     try expectEqual(rule.properties.len, 0);
+    try expectEqual(rule.variables.len, 0);
 }
 
 test "Type selector" {
@@ -212,6 +251,7 @@ test "Type selector" {
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.selector, "h1");
     try expectEqual(rule.properties.len, 0);
+    try expectEqual(rule.variables.len, 0);
 }
 
 test "Style rule with properties" {
@@ -225,6 +265,7 @@ test "Style rule with properties" {
     try expectEqual(root.style_sheet.style_rules.len, 1);
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.selector, ".button");
+    try expectEqual(rule.variables.len, 0);
     try expectEqual(rule.properties.len, 2);
     try expectEqualStrings(rule.properties[0].name, "margin");
     try expectEqualStrings(rule.properties[0].value, "0px");
@@ -243,6 +284,7 @@ test "Nested style rules" {
     try expectEqual(root.style_sheet.style_rules.len, 1);
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.selector, ".button");
+    try expectEqual(rule.variables.len, 0);
     try expectEqual(rule.properties.len, 1);
     try expectEqualStrings(rule.properties[0].name, "margin");
     try expectEqualStrings(rule.properties[0].value, "0px");
@@ -250,7 +292,32 @@ test "Nested style rules" {
     try expectEqual(rule.style_rules.len, 1);
     const nested_rule = rule.style_rules[0];
     try expectEqualStrings(nested_rule.selector, "h1");
+    try expectEqual(nested_rule.variables.len, 0);
     try expectEqual(nested_rule.properties.len, 1);
     try expectEqualStrings(nested_rule.properties[0].name, "color");
     try expectEqualStrings(nested_rule.properties[0].value, "red");
+}
+
+test "Property - Skip" {
+    const input = "$zig-orange: #f7a41d; .button{ $my-color: $zig-orange; color: $my-color;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    const style_sheet = root.style_sheet;
+    try expectEqual(style_sheet.variables.len, 1);
+    try expectEqualStrings(style_sheet.variables[0].name, "$zig-orange");
+    try expectEqualStrings(style_sheet.variables[0].value, "#f7a41d");
+
+    try expectEqual(style_sheet.style_rules.len, 1);
+    const rule = style_sheet.style_rules[0];
+    try expectEqualStrings(rule.selector, ".button");
+    try expectEqual(rule.variables.len, 1);
+    try expectEqualStrings(rule.variables[0].name, "$my-color");
+    try expectEqualStrings(rule.variables[0].value, "$zig-orange");
+    try expectEqual(rule.properties.len, 1);
+    try expectEqualStrings(rule.properties[0].name, "color");
+    try expectEqualStrings(rule.properties[0].value, "$my-color");
 }
