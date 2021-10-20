@@ -308,7 +308,7 @@ pub const Tokenizer = struct {
     }
 
     fn isPropertyValue(char: u8) bool {
-        return isIdentifier(char) or std.ascii.isBlank(char) or char == '#';
+        return isIdentifier(char) or std.ascii.isBlank(char) or char == '#' or char == '$';
     }
 
     inline fn close_token(self: *Tokenizer) !void {
@@ -471,6 +471,24 @@ test "Property - Space and tabs between the first value character and the semico
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
         Token{ .type = .EndOfFile, .start = 22, .end = 23 },
     };
+    try expectTokenEquals(&expected, tokenization.tokens);
+}
+
+test "Property - Value can contains $" {
+    const input = ".button{margin:$zig-orange;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var expected: [7]Token = .{
+        Token{ .type = .Selector, .start = 0, .end = 7 },
+        Token{ .type = .BlockStart, .start = 7, .end = 8 },
+        Token{ .type = .PropertyName, .start = 8, .end = 14 },
+        Token{ .type = .PropertyValue, .start = 15, .end = 26 },
+        Token{ .type = .EndStatement, .start = 26, .end = 27 },
+        Token{ .type = .BlockEnd, .start = 27, .end = 28 },
+        Token{ .type = .EndOfFile, .start = 28, .end = 29 },
+    };
+
     try expectTokenEquals(&expected, tokenization.tokens);
 }
 
