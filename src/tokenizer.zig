@@ -1,5 +1,6 @@
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const assert = std.debug.assert;
 const std = @import("std");
 
 pub const TokenType = enum {
@@ -237,18 +238,17 @@ pub const Tokenizer = struct {
     }
 
     fn readVariable(self: *Tokenizer) Error!void {
-        self.pos += 1;
-        self.current_char = self.input[self.pos];
         try self.readVariableName();
         try self.readVariableValue();
     }
 
     fn readVariableName(self: *Tokenizer) Error!void {
-        if (!isIdentifier(self.current_char)) {
-            return error.VariableNameCanOnlyContainsAlphaChar;
-        }
-
+        assert(self.current_char == '$');
         try self.tokens.append(Token{ .type = .VariableName, .start = self.pos });
+
+        self.pos += 1;
+        self.current_char = self.input[self.pos];
+
         self.readWhile(isIdentifier);
         try self.close_token();
 
@@ -582,7 +582,7 @@ test "Variable" {
     defer tokenization.deinit();
 
     var expected: [4]Token = .{
-        Token{ .type = .VariableName, .start = 1, .end = 11 },
+        Token{ .type = .VariableName, .start = 0, .end = 11 },
         Token{ .type = .VariableValue, .start = 12, .end = 19 },
         Token{ .type = .EndStatement, .start = 19, .end = 20 },
         Token{ .type = .EndOfFile, .start = 20, .end = 21 },
@@ -596,7 +596,7 @@ test "Variable - Space and tabs between variable name and colon are skipped" {
     defer tokenization.deinit();
 
     var expected: [4]Token = .{
-        Token{ .type = .VariableName, .start = 1, .end = 11 },
+        Token{ .type = .VariableName, .start = 0, .end = 11 },
         Token{ .type = .VariableValue, .start = 16, .end = 23 },
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
         Token{ .type = .EndOfFile, .start = 24, .end = 25 },
@@ -610,7 +610,7 @@ test "Variable - Space and tabs between variable value and semicolon are part of
     defer tokenization.deinit();
 
     var expected: [4]Token = .{
-        Token{ .type = .VariableName, .start = 1, .end = 11 },
+        Token{ .type = .VariableName, .start = 0, .end = 11 },
         Token{ .type = .VariableValue, .start = 13, .end = 23 },
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
         Token{ .type = .EndOfFile, .start = 24, .end = 25 },
@@ -627,7 +627,7 @@ test "Variable - Within a block" {
     var expected: [7]Token = .{
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
-        Token{ .type = .VariableName, .start = 10, .end = 20 },
+        Token{ .type = .VariableName, .start = 9, .end = 20 },
         Token{ .type = .VariableValue, .start = 22, .end = 29 },
         Token{ .type = .EndStatement, .start = 29, .end = 30 },
         Token{ .type = .BlockEnd, .start = 30, .end = 31 },
