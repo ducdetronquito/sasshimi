@@ -61,7 +61,6 @@ const Variable = struct {
 const Context = struct {
     allocator: *Allocator,
     current_token: usize = 0,
-    root: Root,
     source: []const u8,
     tokens: []Token,
 
@@ -86,15 +85,13 @@ pub const ParserError = error{
 };
 
 pub fn parse(allocator: *Allocator, tokenization: Tokenization) !Root {
-    var root = Root{ .allocator = allocator, .style_sheet = undefined };
+    var context = Context{ .allocator = allocator, .source = tokenization.input, .tokens = tokenization.tokens };
 
-    var context = Context{ .allocator = allocator, .root = root, .source = tokenization.input, .tokens = tokenization.tokens };
-
-    try parse_style_sheet(&context);
-    return context.root;
+    var style_sheet = try parse_style_sheet(&context);
+    return Root{ .allocator = allocator, .style_sheet = style_sheet };
 }
 
-fn parse_style_sheet(context: *Context) !void {
+fn parse_style_sheet(context: *Context) !StyleSheet {
     var rules = ArrayList(StyleRule).init(context.allocator);
     errdefer rules.deinit();
 
@@ -117,8 +114,7 @@ fn parse_style_sheet(context: *Context) !void {
         }
     }
 
-    var style_sheet = StyleSheet{ .style_rules = rules.toOwnedSlice(), .variables = variables.toOwnedSlice() };
-    context.root.style_sheet = style_sheet;
+    return StyleSheet{ .style_rules = rules.toOwnedSlice(), .variables = variables.toOwnedSlice() };
 }
 
 fn parse_variable(context: *Context) !Variable {
