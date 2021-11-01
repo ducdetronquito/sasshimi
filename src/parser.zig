@@ -53,7 +53,7 @@ const Property = struct {
 
 const Selector = []const u8;
 
-const Variable = struct {
+pub const Variable = struct {
     name: []const u8,
     value: []const u8,
 };
