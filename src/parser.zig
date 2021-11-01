@@ -77,6 +77,15 @@ const Context = struct {
     pub inline fn get_token_value(self: *Context, token: Token) []const u8 {
         return self.source[token.start..token.end];
     }
+
+    pub fn copy(self: *Context) Context {
+        return Context{
+            .allocator = self.allocator,
+            .current_token = self.current_token,
+            .source = self.source,
+            .tokens = self.tokens,
+        };
+    }
 };
 
 pub const ParserError = error{
@@ -106,7 +115,9 @@ fn parse_style_sheet(context: *Context) !StyleSheet {
                 try variables.append(variable);
             },
             .Selector => {
-                var rule = try parse_style_rule(context);
+                var nested_context = context.copy();
+                var rule = try parse_style_rule(&nested_context);
+                context.current_token = nested_context.current_token;
                 try rules.append(rule);
             },
             .EndOfFile => break,
@@ -170,7 +181,9 @@ fn parse_style_rule(context: *Context) ParserError!StyleRule {
                 try properties.append(property);
             },
             .Selector => {
-                var style_rule = try parse_style_rule(context);
+                var nested_context = context.copy();
+                var style_rule = try parse_style_rule(&nested_context);
+                context.current_token = nested_context.current_token;
                 try style_rules.append(style_rule);
             },
             .BlockEnd => {
