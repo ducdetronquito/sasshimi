@@ -116,7 +116,7 @@ fn parse_style_sheet(context: *Context) !StyleSheet {
             },
             .Selector => {
                 var nested_context = context.copy();
-                var rule = try parse_style_rule(&nested_context);
+                var rule = try parse_style_rule(&nested_context, variables.items);
                 context.current_token = nested_context.current_token;
                 try rules.append(rule);
             },
@@ -154,7 +154,7 @@ fn parse_selector(context: *Context) !Selector {
     return value;
 }
 
-fn parse_style_rule(context: *Context) ParserError!StyleRule {
+fn parse_style_rule(context: *Context, parent_variables: []Variable) ParserError!StyleRule {
     var selector = try parse_selector(context);
 
     var token = context.eat_token();
@@ -168,6 +168,7 @@ fn parse_style_rule(context: *Context) ParserError!StyleRule {
 
     var variables = ArrayList(Variable).init(context.allocator);
     errdefer variables.deinit();
+    try variables.appendSlice(parent_variables);
 
     while (true) {
         token = context.peek_token();
@@ -182,7 +183,7 @@ fn parse_style_rule(context: *Context) ParserError!StyleRule {
             },
             .Selector => {
                 var nested_context = context.copy();
-                var style_rule = try parse_style_rule(&nested_context);
+                var style_rule = try parse_style_rule(&nested_context, variables.items);
                 context.current_token = nested_context.current_token;
                 try style_rules.append(style_rule);
             },
@@ -307,26 +308,100 @@ test "Nested style rules" {
     try expectEqualStrings(nested_rule.properties[0].value, "red");
 }
 
-test "Property - Skip" {
-    const input = "$zig-orange: #f7a41d; .button{ $my-color: $zig-orange; color: $my-color;}";
+test "Variables - Top level" {
+    const input = "$zig-orange: #f7a41d;";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
 
     var root = try parse(std.testing.allocator, tokenization);
     defer root.deinit();
 
-    const style_sheet = root.style_sheet;
-    try expectEqual(style_sheet.variables.len, 1);
-    try expectEqualStrings(style_sheet.variables[0].name, "$zig-orange");
-    try expectEqualStrings(style_sheet.variables[0].value, "#f7a41d");
+    const variables = root.style_sheet.variables;
+    try expectEqual(variables.len, 1);
+    try expectEqualStrings(variables[0].name, "$zig-orange");
+    try expectEqualStrings(variables[0].value, "#f7a41d");
+}
 
-    try expectEqual(style_sheet.style_rules.len, 1);
-    const rule = style_sheet.style_rules[0];
+test "Variables - Within style rule" {
+    const input = ".button{ $zig-orange: #f7a41d; }";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.selector, ".button");
     try expectEqual(rule.variables.len, 1);
-    try expectEqualStrings(rule.variables[0].name, "$my-color");
-    try expectEqualStrings(rule.variables[0].value, "$zig-orange");
-    try expectEqual(rule.properties.len, 1);
-    try expectEqualStrings(rule.properties[0].name, "color");
-    try expectEqualStrings(rule.properties[0].value, "$my-color");
+    try expectEqualStrings(rule.variables[0].name, "$zig-orange");
+    try expectEqualStrings(rule.variables[0].value, "#f7a41d");
+}
+
+test "Variables - New scope inherits parent variables" {
+    const input = "$zig-orange: #f7a41d; .button{ $my-color: $zig-orange; }";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    const rule = root.style_sheet.style_rules[0];
+    try expectEqualStrings(rule.selector, ".button");
+    try expectEqual(rule.variables.len, 2);
+    try expectEqualStrings(rule.variables[0].name, "$zig-orange");
+    try expectEqualStrings(rule.variables[0].value, "#f7a41d");
+    try expectEqualStrings(rule.variables[1].name, "$my-color");
+    try expectEqualStrings(rule.variables[1].value, "$zig-orange");
+}
+
+test "Variables - Shadowing in a child scope" {
+    const input = "$zig-orange: #f7a41d; .button{ $zig-orange: #000000; }";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    const rule = root.style_sheet.style_rules[0];
+    try expectEqualStrings(rule.selector, ".button");
+    try expectEqual(rule.variables.len, 2);
+    try expectEqualStrings(rule.variables[0].name, "$zig-orange");
+    try expectEqualStrings(rule.variables[0].value, "#f7a41d");
+    try expectEqualStrings(rule.variables[1].name, "$zig-orange");
+    try expectEqualStrings(rule.variables[1].value, "#000000");
+}
+
+test "Variables - Don't go out of scope" {
+    const input =
+        \\$zig-orange: #f7a41d;
+        \\.button{ $zig-orange: #000000; }
+        \\$zig-blue: blue;
+        \\h1 {}
+    ;
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    const top_level_variables = root.style_sheet.variables;
+    try expectEqual(top_level_variables.len, 2);
+    try expectEqualStrings(top_level_variables[0].name, "$zig-orange");
+    try expectEqualStrings(top_level_variables[0].value, "#f7a41d");
+    try expectEqualStrings(top_level_variables[1].name, "$zig-blue");
+    try expectEqualStrings(top_level_variables[1].value, "blue");
+
+    var first_scope_variables = root.style_sheet.style_rules[0].variables;
+    try expectEqual(first_scope_variables.len, 2);
+    try expectEqualStrings(first_scope_variables[0].name, "$zig-orange");
+    try expectEqualStrings(first_scope_variables[0].value, "#f7a41d");
+    try expectEqualStrings(first_scope_variables[1].name, "$zig-orange");
+    try expectEqualStrings(first_scope_variables[1].value, "#000000");
+
+    var second_scope_variables = root.style_sheet.style_rules[1].variables;
+    try expectEqual(second_scope_variables.len, 2);
+    try expectEqualStrings(second_scope_variables[0].name, "$zig-orange");
+    try expectEqualStrings(second_scope_variables[0].value, "#f7a41d");
+    try expectEqualStrings(second_scope_variables[1].name, "$zig-blue");
+    try expectEqualStrings(second_scope_variables[1].value, "blue");
 }
