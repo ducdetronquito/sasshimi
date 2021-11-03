@@ -176,6 +176,8 @@ pub const Tokenizer = struct {
 
         if (isIdentifier(self.current_char) or isSelectorStart(self.current_char)) {
             try self.tokens.append(Token{ .type = undefined, .start = self.pos, .end = undefined });
+            self.pos += 1;
+            self.current_char = self.input[self.pos];
             self.readWhile(isIdentifier);
             try self.close_token();
             self.skipSpace();
@@ -688,6 +690,22 @@ test "Block - Empty nested block" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .Selector, .start = 8, .end = 10 },
+        Token{ .type = .BlockStart, .start = 10, .end = 11 },
+        Token{ .type = .BlockEnd, .start = 11, .end = 12 },
+        Token{ .type = .BlockEnd, .start = 12, .end = 13 },
+        Token{ .type = .EndOfFile, .start = 13, .end = 14 },
+    };
+    try expectTokenEquals(&expected, tokenization.tokens);
+}
+
+test "Block - Nested selector can be a class name" {
+    const input = "h1{.button{}}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+    var expected: [7]Token = .{
+        Token{ .type = .Selector, .start = 0, .end = 2 },
+        Token{ .type = .BlockStart, .start = 2, .end = 3 },
+        Token{ .type = .Selector, .start = 3, .end = 10 },
         Token{ .type = .BlockStart, .start = 10, .end = 11 },
         Token{ .type = .BlockEnd, .start = 11, .end = 12 },
         Token{ .type = .BlockEnd, .start = 12, .end = 13 },
