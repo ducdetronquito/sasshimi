@@ -29,7 +29,7 @@ pub fn compile(allocator: *Allocator, input: []const u8) ![]u8 {
         try output.appendSlice(style_rule.selector);
         try output.appendSlice(" {\n");
         for (style_rule.properties) |property| {
-            try output.appendSlice("    ");
+            try output.appendSlice("  ");
             try output.appendSlice(property.name);
             try output.appendSlice(": ");
             try output.appendSlice(property.value);
@@ -48,12 +48,12 @@ test "Compile" {
 
     try expectEqualStrings(output,
         \\.button {
-        \\    margin: 0;
-        \\    padding: 0;
+        \\  margin: 0;
+        \\  padding: 0;
         \\}
         \\
         \\h1 {
-        \\    color: red;
+        \\  color: red;
         \\}
         \\
     );
@@ -65,11 +65,11 @@ test "Compile - Nested rules" {
 
     try expectEqualStrings(output,
         \\.button {
-        \\    margin: 0;
+        \\  margin: 0;
         \\}
         \\
         \\.button h1 {
-        \\    color: red;
+        \\  color: red;
         \\}
         \\
     );
@@ -81,7 +81,7 @@ test "Compile - Variable reference" {
 
     try expectEqualStrings(output,
         \\.button {
-        \\    color: #f7a41d;
+        \\  color: #f7a41d;
         \\}
         \\
     );
