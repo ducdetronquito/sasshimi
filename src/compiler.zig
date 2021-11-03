@@ -1,6 +1,7 @@
 const Allocator = std.mem.Allocator;
 const emitter = @import("emitter.zig");
 const parser = @import("parser.zig");
+const solver = @import("solver.zig");
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 
@@ -8,8 +9,10 @@ pub fn compile(allocator: *Allocator, input: []const u8) ![]u8 {
     var tokenization = try Tokenizer.tokenize(allocator, input);
     defer tokenization.deinit();
 
-    const root = try parser.parse(allocator, tokenization);
+    var root = try parser.parse(allocator, tokenization);
     defer root.deinit();
+
+    try solver.solve(allocator, root);
 
     const css = try emitter.emit(allocator, root);
     defer css.deinit();
@@ -67,6 +70,18 @@ test "Compile - Nested rules" {
         \\
         \\.button h1 {
         \\    color: red;
+        \\}
+        \\
+    );
+}
+
+test "Compile - Variable reference" {
+    var output = try compile(std.testing.allocator, "$zig-orange: #f7a41d; .button { color: $zig-orange; }");
+    defer std.testing.allocator.free(output);
+
+    try expectEqualStrings(output,
+        \\.button {
+        \\    color: #f7a41d;
         \\}
         \\
     );
