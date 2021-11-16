@@ -513,6 +513,25 @@ test "Property - Value must end with a semicolon" {
     try std.testing.expectError(error.PropertyValueMustEndWithASemicolon, failure);
 }
 
+test "Property - Value list" {
+    const input = ".button{border: 1px solid;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var expected: [8]Token = .{
+        Token{ .type = .Selector, .start = 0, .end = 7 },
+        Token{ .type = .BlockStart, .start = 7, .end = 8 },
+        Token{ .type = .PropertyName, .start = 8, .end = 14 },
+        Token{ .type = .PropertyValue, .start = 16, .end = 19 },
+        Token{ .type = .PropertyValue, .start = 20, .end = 25 },
+        Token{ .type = .EndStatement, .start = 25, .end = 26 },
+        Token{ .type = .BlockEnd, .start = 26, .end = 27 },
+        Token{ .type = .EndOfFile, .start = 27, .end = 28 },
+    };
+
+    try expectTokenEquals(&expected, tokenization.tokens);
+}
+
 test "Block - Whitespaces between open bracket and identifier character are skipped" {
     const input = ".button{ \r\n \t margin:0;}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);

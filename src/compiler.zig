@@ -31,8 +31,11 @@ pub fn compile(allocator: *Allocator, input: []const u8) ![]u8 {
         for (style_rule.properties) |property| {
             try output.appendSlice("  ");
             try output.appendSlice(property.name);
-            try output.appendSlice(": ");
-            try output.appendSlice(property.value);
+            try output.append(':');
+            for (property.value) |value_part| {
+                try output.append(' ');
+                try output.appendSlice(value_part);
+            }
             try output.appendSlice(";\n");
         }
         try output.appendSlice("}\n");
@@ -82,6 +85,18 @@ test "Compile - Variable reference" {
     try expectEqualStrings(output,
         \\.button {
         \\  color: #f7a41d;
+        \\}
+        \\
+    );
+}
+
+test "Compile - Property value list" {
+    var output = try compile(std.testing.allocator, ".button { border: 1px solid; }");
+    defer std.testing.allocator.free(output);
+
+    try expectEqualStrings(output,
+        \\.button {
+        \\  border: 1px solid;
         \\}
         \\
     );

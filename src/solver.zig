@@ -35,12 +35,14 @@ fn solve_style_rule(style_rule: parser.StyleRule) SolverError!void {
     try solve_variables(style_rule.variables);
 
     for (style_rule.properties) |*property| {
-        if (property.value[0] == '$') {
-            var target_value = get_value(property.value, style_rule.variables) orelse {
-                std.debug.print("Property '{s}' reference an undefined variable '{s}'\n", .{ property.name, property.value });
-                return error.UndefinedVariable;
-            };
-            property.value = target_value;
+        for (property.value) |value_part, i| {
+            if (value_part[0] == '$') {
+                var target_value = get_value(value_part, style_rule.variables) orelse {
+                    std.debug.print("Property '{s}' reference an undefined variable '{s}'\n", .{ property.name, value_part });
+                    return error.UndefinedVariable;
+                };
+                property.value[i] = target_value;
+            }
         }
     }
 
@@ -119,7 +121,22 @@ test "Variable Reference - Reference as property value" {
 
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.properties[0].name, "color");
-    try expectEqualStrings(rule.properties[0].value, "#f7a41d");
+    try expectEqualStrings(rule.properties[0].value[0], "#f7a41d");
+}
+
+test "Variable Reference - Reference as property value part" {
+    const input = "$zig-orange: #f7a41d; .button{ border: 1px solid $zig-orange; }";
+    var tokenization = try tokenizer.Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parser.parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    try solve(std.testing.allocator, root);
+
+    const rule = root.style_sheet.style_rules[0];
+    try expectEqualStrings(rule.properties[0].name, "border");
+    try expectEqualStrings(rule.properties[0].value[2], "#f7a41d");
 }
 
 test "Variable Reference - Undefined top level reference" {
