@@ -218,25 +218,31 @@ pub const Tokenizer = struct {
     }
 
     fn readPropertyValue(self: *Tokenizer) !void {
-        self.skipBlank();
+        while (true) {
+            self.skipBlank();
+            var value_start = self.pos;
+            self.readWhile(isPropertyValue);
+            var value_end = self.pos;
 
-        try self.tokens.append(Token{ .type = .PropertyValue, .start = self.pos });
-        self.readWhile(isPropertyValue);
-        try self.close_token();
+            if (value_end > value_start) {
+                try self.tokens.append(Token{ .type = .PropertyValue, .start = value_start, .end = value_end });
+            }
 
-        return switch (self.current_char) {
-            ';' => {
-                const property_value = self.get_last_token();
-                if (property_value.start == property_value.end) {
-                    return error.PropertyValueCannotBeEmpty;
-                }
-                try self.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
-            },
-            '}' => error.PropertyValueMustEndWithASemicolon,
-            '\r', '\n' => error.PropertyValueCannotContainCRLF,
-            '\x00' => error.UnexpectedEndOfFile,
-            else => error.UnexpectedCharacter,
-        };
+            if (std.ascii.isBlank(self.current_char)) {
+                continue;
+            }
+
+            switch (self.current_char) {
+                ';' => {
+                    try self.tokens.append(Token{ .type = .EndStatement, .start = self.pos, .end = self.pos + 1 });
+                    return;
+                },
+                '}' => return error.PropertyValueMustEndWithASemicolon,
+                '\r', '\n' => return error.PropertyValueCannotContainCRLF,
+                '\x00' => return error.UnexpectedEndOfFile,
+                else => return error.UnexpectedCharacter,
+            }
+        }
     }
 
     fn readVariable(self: *Tokenizer) Error!void {
@@ -310,7 +316,7 @@ pub const Tokenizer = struct {
     }
 
     fn isPropertyValue(char: u8) bool {
-        return isIdentifier(char) or std.ascii.isBlank(char) or char == '#' or char == '$';
+        return !std.ascii.isSpace(char) and char != ';' and char != '}' and char != '\x00';
     }
 
     inline fn close_token(self: *Tokenizer) !void {
@@ -459,7 +465,7 @@ test "Property - Space and tabs between colon and value are skipped" {
     try expectTokenEquals(&expected, tokenization.tokens);
 }
 
-test "Property - Space and tabs between the first value character and the semicolon are part of the value" {
+test "Property - Space and tabs between the last value and the semicolon are skipped" {
     const input = ".button{margin:0 \t  ;}";
     var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
     defer tokenization.deinit();
@@ -468,7 +474,7 @@ test "Property - Space and tabs between the first value character and the semico
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 15, .end = 20 },
+        Token{ .type = .PropertyValue, .start = 15, .end = 16 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
         Token{ .type = .EndOfFile, .start = 22, .end = 23 },
@@ -505,20 +511,6 @@ test "Property - Value must end with a semicolon" {
     const failure = Tokenizer.tokenize(std.testing.allocator, input);
 
     try std.testing.expectError(error.PropertyValueMustEndWithASemicolon, failure);
-}
-
-test "Property - Value cannot be only whitespaces" {
-    const input = ".button{margin: \t  ;}";
-    const failure = Tokenizer.tokenize(std.testing.allocator, input);
-
-    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
-}
-
-test "Property - Value cannot be empty" {
-    const input = ".button{margin:;}";
-    const failure = Tokenizer.tokenize(std.testing.allocator, input);
-
-    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
 }
 
 test "Block - Whitespaces between open bracket and identifier character are skipped" {

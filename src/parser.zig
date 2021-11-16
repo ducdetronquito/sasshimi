@@ -88,10 +88,7 @@ const Context = struct {
     }
 };
 
-pub const ParserError = error{
-    NotImplemented,
-    OutOfMemory,
-};
+pub const ParserError = error{ NotImplemented, OutOfMemory, PropertyValueCannotBeEmpty };
 
 pub fn parse(allocator: *Allocator, tokenization: Tokenization) !Root {
     var context = Context{ .allocator = allocator, .source = tokenization.input, .tokens = tokenization.tokens };
@@ -203,6 +200,9 @@ fn parse_property(context: *Context) !Property {
     assert(property_name.type == .PropertyName);
 
     const property_value = context.eat_token();
+    if (property_value.type == .EndStatement) {
+        return error.PropertyValueCannotBeEmpty;
+    }
     assert(property_value.type == .PropertyValue);
 
     var property = Property{
@@ -404,4 +404,22 @@ test "Variables - Don't go out of scope" {
     try expectEqualStrings(second_scope_variables[0].value, "#f7a41d");
     try expectEqualStrings(second_scope_variables[1].name, "$zig-blue");
     try expectEqualStrings(second_scope_variables[1].value, "blue");
+}
+
+test "Property - Value cannot be only whitespaces" {
+    const input = ".button{margin: \t  ;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    const failure = parse(std.testing.allocator, tokenization);
+    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
+}
+
+test "Property - Value cannot be empty" {
+    const input = ".button{margin:;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    const failure = parse(std.testing.allocator, tokenization);
+    try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
 }
