@@ -28,7 +28,7 @@ form {
   padding: 0;
 
   .button {
-    background-color: $zig-orange;
+    border: 1px solid $zig-orange;
   }
 }
 ```
@@ -41,6 +41,6 @@ form {
 }
 
 form .button {
-  background-color: #f7a41d;
+  border: 1px solid #f7a41d;
 }
 ```

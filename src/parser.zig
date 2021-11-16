@@ -37,6 +37,9 @@ pub const StyleRule = struct {
     variables: []Variable,
 
     pub fn deinit(self: StyleRule, allocator: *Allocator) void {
+        for (self.properties) |property| {
+            property.deinit(allocator);
+        }
         allocator.free(self.properties);
         for (self.style_rules) |style_stule| {
             style_stule.deinit(allocator);
@@ -48,7 +51,11 @@ pub const StyleRule = struct {
 
 const Property = struct {
     name: []const u8,
-    value: []const u8,
+    value: [][]const u8,
+
+    pub fn deinit(self: Property, allocator: *Allocator) void {
+        allocator.free(self.value);
+    }
 };
 
 const Selector = []const u8;
@@ -195,25 +202,31 @@ fn parse_style_rule(context: *Context, parent_variables: []Variable) ParserError
     return StyleRule{ .properties = properties.toOwnedSlice(), .selector = selector, .style_rules = style_rules.toOwnedSlice(), .variables = variables.toOwnedSlice() };
 }
 
-fn parse_property(context: *Context) !Property {
+fn parse_property(context: *Context) ParserError!Property {
     const property_name = context.eat_token();
     assert(property_name.type == .PropertyName);
 
-    const property_value = context.eat_token();
+    const property_value = context.peek_token();
     if (property_value.type == .EndStatement) {
         return error.PropertyValueCannotBeEmpty;
     }
-    assert(property_value.type == .PropertyValue);
 
-    var property = Property{
-        .name = context.get_token_value(property_name),
-        .value = context.get_token_value(property_value),
-    };
+    var value = ArrayList([]const u8).init(context.allocator);
+    errdefer value.deinit();
 
-    const token = context.eat_token();
-    assert(token.type == .EndStatement);
-
-    return property;
+    while (true) {
+        var token = context.eat_token();
+        switch (token.type) {
+            .PropertyValue => try value.append(context.get_token_value(token)),
+            .EndStatement => {
+                return Property{
+                    .name = context.get_token_value(property_name),
+                    .value = value.toOwnedSlice(),
+                };
+            },
+            else => unreachable, // Presence of at least an EndStatement token is ensured by the tokenizer.
+        }
+    }
 }
 
 const expectEqual = std.testing.expectEqual;
@@ -278,9 +291,9 @@ test "Style rule with properties" {
     try expectEqual(rule.variables.len, 0);
     try expectEqual(rule.properties.len, 2);
     try expectEqualStrings(rule.properties[0].name, "margin");
-    try expectEqualStrings(rule.properties[0].value, "0px");
+    try expectEqualStrings(rule.properties[0].value[0], "0px");
     try expectEqualStrings(rule.properties[1].name, "padding");
-    try expectEqualStrings(rule.properties[1].value, "0px");
+    try expectEqualStrings(rule.properties[1].value[0], "0px");
 }
 
 test "Nested style rules" {
@@ -297,7 +310,7 @@ test "Nested style rules" {
     try expectEqual(rule.variables.len, 0);
     try expectEqual(rule.properties.len, 1);
     try expectEqualStrings(rule.properties[0].name, "margin");
-    try expectEqualStrings(rule.properties[0].value, "0px");
+    try expectEqualStrings(rule.properties[0].value[0], "0px");
 
     try expectEqual(rule.style_rules.len, 1);
     const nested_rule = rule.style_rules[0];
@@ -305,7 +318,7 @@ test "Nested style rules" {
     try expectEqual(nested_rule.variables.len, 0);
     try expectEqual(nested_rule.properties.len, 1);
     try expectEqualStrings(nested_rule.properties[0].name, "color");
-    try expectEqualStrings(nested_rule.properties[0].value, "red");
+    try expectEqualStrings(nested_rule.properties[0].value[0], "red");
 }
 
 test "Variables - Top level" {
@@ -422,4 +435,32 @@ test "Property - Value cannot be empty" {
 
     const failure = parse(std.testing.allocator, tokenization);
     try std.testing.expectError(error.PropertyValueCannotBeEmpty, failure);
+}
+
+test "Property - Value list" {
+    const input = ".button{border: 1px solid;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    const property = root.style_sheet.style_rules[0].properties[0];
+    try expectEqualStrings(property.name, "border");
+    try expectEqualStrings(property.value[0], "1px");
+    try expectEqualStrings(property.value[1], "solid");
+}
+
+test "Property - Value list" {
+    const input = ".button{border: 1px solid;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var root = try parse(std.testing.allocator, tokenization);
+    defer root.deinit();
+
+    const property = root.style_sheet.style_rules[0].properties[0];
+    try expectEqualStrings(property.name, "border");
+    try expectEqualStrings(property.value[0], "1px");
+    try expectEqualStrings(property.value[1], "solid");
 }
