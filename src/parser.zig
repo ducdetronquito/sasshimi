@@ -49,9 +49,16 @@ pub const StyleRule = struct {
     }
 };
 
+const ValueType = enum { String, Reference };
+
+pub const Value = union(ValueType) {
+    String: []const u8,
+    Reference: []const u8,
+};
+
 const Property = struct {
     name: []const u8,
-    value: [][]const u8,
+    value: []Value,
 
     pub fn deinit(self: Property, allocator: *Allocator) void {
         allocator.free(self.value);
@@ -211,13 +218,20 @@ fn parse_property(context: *Context) ParserError!Property {
         return error.PropertyValueCannotBeEmpty;
     }
 
-    var value = ArrayList([]const u8).init(context.allocator);
+    var value = ArrayList(Value).init(context.allocator);
     errdefer value.deinit();
 
     while (true) {
         var token = context.eat_token();
         switch (token.type) {
-            .PropertyValue => try value.append(context.get_token_value(token)),
+            .PropertyValue => {
+                var content = context.get_token_value(token);
+                if (content[0] == '$') {
+                    try value.append(.{ .Reference = content });
+                } else {
+                    try value.append(.{ .String = content });
+                }
+            },
             .EndStatement => {
                 return Property{
                     .name = context.get_token_value(property_name),
@@ -291,9 +305,9 @@ test "Style rule with properties" {
     try expectEqual(rule.variables.len, 0);
     try expectEqual(rule.properties.len, 2);
     try expectEqualStrings(rule.properties[0].name, "margin");
-    try expectEqualStrings(rule.properties[0].value[0], "0px");
+    try expectEqualStrings(rule.properties[0].value[0].String, "0px");
     try expectEqualStrings(rule.properties[1].name, "padding");
-    try expectEqualStrings(rule.properties[1].value[0], "0px");
+    try expectEqualStrings(rule.properties[1].value[0].String, "0px");
 }
 
 test "Nested style rules" {
@@ -310,7 +324,8 @@ test "Nested style rules" {
     try expectEqual(rule.variables.len, 0);
     try expectEqual(rule.properties.len, 1);
     try expectEqualStrings(rule.properties[0].name, "margin");
-    try expectEqualStrings(rule.properties[0].value[0], "0px");
+    //try expectEqualStrings(rule.properties[0].value[0], "0px");
+    try expectEqualStrings(rule.properties[0].value[0].String, "0px");
 
     try expectEqual(rule.style_rules.len, 1);
     const nested_rule = rule.style_rules[0];
@@ -318,7 +333,7 @@ test "Nested style rules" {
     try expectEqual(nested_rule.variables.len, 0);
     try expectEqual(nested_rule.properties.len, 1);
     try expectEqualStrings(nested_rule.properties[0].name, "color");
-    try expectEqualStrings(nested_rule.properties[0].value[0], "red");
+    try expectEqualStrings(nested_rule.properties[0].value[0].String, "red");
 }
 
 test "Variables - Top level" {
@@ -447,8 +462,8 @@ test "Property - Value list" {
 
     const property = root.style_sheet.style_rules[0].properties[0];
     try expectEqualStrings(property.name, "border");
-    try expectEqualStrings(property.value[0], "1px");
-    try expectEqualStrings(property.value[1], "solid");
+    try expectEqualStrings(property.value[0].String, "1px");
+    try expectEqualStrings(property.value[1].String, "solid");
 }
 
 test "Property - Value list" {
@@ -461,6 +476,6 @@ test "Property - Value list" {
 
     const property = root.style_sheet.style_rules[0].properties[0];
     try expectEqualStrings(property.name, "border");
-    try expectEqualStrings(property.value[0], "1px");
-    try expectEqualStrings(property.value[1], "solid");
+    try expectEqualStrings(property.value[0].String, "1px");
+    try expectEqualStrings(property.value[1].String, "solid");
 }

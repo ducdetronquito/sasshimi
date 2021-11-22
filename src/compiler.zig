@@ -34,7 +34,10 @@ pub fn compile(allocator: *Allocator, input: []const u8) ![]u8 {
             try output.append(':');
             for (property.value) |value_part| {
                 try output.append(' ');
-                try output.appendSlice(value_part);
+                switch (value_part) {
+                    .String => |string| try output.appendSlice(string),
+                    else => unreachable,
+                }
             }
             try output.appendSlice(";\n");
         }
