@@ -36,12 +36,15 @@ fn solve_style_rule(style_rule: parser.StyleRule) SolverError!void {
 
     for (style_rule.properties) |*property| {
         for (property.value) |value_part, i| {
-            if (value_part[0] == '$') {
-                var target_value = get_value(value_part, style_rule.variables) orelse {
-                    std.debug.print("Property '{s}' reference an undefined variable '{s}'\n", .{ property.name, value_part });
-                    return error.UndefinedVariable;
-                };
-                property.value[i] = target_value;
+            switch (value_part) {
+                .Reference => |reference| {
+                    var target_value = get_value(reference, style_rule.variables) orelse {
+                        std.debug.print("Property '{s}' reference an undefined variable '{s}'\n", .{ property.name, reference });
+                        return error.UndefinedVariable;
+                    };
+                    property.value[i] = .{ .String = target_value };
+                },
+                else => continue,
             }
         }
     }
@@ -121,7 +124,7 @@ test "Variable Reference - Reference as property value" {
 
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.properties[0].name, "color");
-    try expectEqualStrings(rule.properties[0].value[0], "#f7a41d");
+    try expectEqualStrings(rule.properties[0].value[0].String, "#f7a41d");
 }
 
 test "Variable Reference - Reference as property value part" {
@@ -136,7 +139,7 @@ test "Variable Reference - Reference as property value part" {
 
     const rule = root.style_sheet.style_rules[0];
     try expectEqualStrings(rule.properties[0].name, "border");
-    try expectEqualStrings(rule.properties[0].value[2], "#f7a41d");
+    try expectEqualStrings(rule.properties[0].value[2].String, "#f7a41d");
 }
 
 test "Variable Reference - Undefined top level reference" {

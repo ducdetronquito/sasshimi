@@ -27,7 +27,7 @@ const StyleRule = struct {
 
 const Property = struct {
     name: []const u8,
-    value: [][]const u8,
+    value: []parser.Value,
 };
 
 const Context = struct {
@@ -103,9 +103,9 @@ test "Properties" {
     try expectEqualStrings(style_rule.selector, ".button");
     try expectEqual(style_rule.properties.len, 2);
     try expectEqualStrings(style_rule.properties[0].name, "margin");
-    try expectEqualStrings(style_rule.properties[0].value[0], "0px");
+    try expectEqualStrings(style_rule.properties[0].value[0].String, "0px");
     try expectEqualStrings(style_rule.properties[1].name, "padding");
-    try expectEqualStrings(style_rule.properties[1].value[0], "0px");
+    try expectEqualStrings(style_rule.properties[1].value[0].String, "0px");
 }
 
 test "Nested blocks" {
@@ -125,11 +125,11 @@ test "Nested blocks" {
     try expectEqualStrings(parent_rule.selector, ".button");
     try expectEqual(parent_rule.properties.len, 1);
     try expectEqualStrings(parent_rule.properties[0].name, "margin");
-    try expectEqualStrings(parent_rule.properties[0].value[0], "0px");
+    try expectEqualStrings(parent_rule.properties[0].value[0].String, "0px");
 
     var descendant_rule = css.style_rules[1];
     try expectEqualStrings(descendant_rule.selector, ".button h1");
     try expectEqual(descendant_rule.properties.len, 1);
     try expectEqualStrings(descendant_rule.properties[0].name, "color");
-    try expectEqualStrings(descendant_rule.properties[0].value[0], "red");
+    try expectEqualStrings(descendant_rule.properties[0].value[0].String, "red");
 }

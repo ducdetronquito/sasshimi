@@ -9,10 +9,9 @@ pub const TokenType = enum {
     EndOfFile,
     EndStatement, // ;
     PropertyName, // margin
-    PropertyValue, // 0px
     Selector, // h1, .button, #name
     VariableName, // zig-orange
-    VariableValue, // #f7a41d
+    Value, // #f7a41d
 };
 
 pub const Token = struct {
@@ -221,11 +220,11 @@ pub const Tokenizer = struct {
         while (true) {
             self.skipBlank();
             var value_start = self.pos;
-            self.readWhile(isPropertyValue);
+            self.readWhile(isValue);
             var value_end = self.pos;
 
             if (value_end > value_start) {
-                try self.tokens.append(Token{ .type = .PropertyValue, .start = value_start, .end = value_end });
+                try self.tokens.append(Token{ .type = .Value, .start = value_start, .end = value_end });
             }
 
             if (std.ascii.isBlank(self.current_char)) {
@@ -273,8 +272,8 @@ pub const Tokenizer = struct {
     fn readVariableValue(self: *Tokenizer) Error!void {
         self.skipBlank();
 
-        try self.tokens.append(Token{ .type = .VariableValue, .start = self.pos });
-        self.readWhile(isPropertyValue);
+        try self.tokens.append(Token{ .type = .Value, .start = self.pos });
+        self.readWhile(isValue);
 
         self.skipBlank();
 
@@ -315,7 +314,7 @@ pub const Tokenizer = struct {
         return isIdentifier(char) or char == '.' or char == '#';
     }
 
-    fn isPropertyValue(char: u8) bool {
+    fn isValue(char: u8) bool {
         return !std.ascii.isSpace(char) and char != ';' and char != '}' and char != '\x00';
     }
 
@@ -420,7 +419,7 @@ test "Property - Name and value" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 15, .end = 16 },
+        Token{ .type = .Value, .start = 15, .end = 16 },
         Token{ .type = .EndStatement, .start = 16, .end = 17 },
         Token{ .type = .BlockEnd, .start = 17, .end = 18 },
         Token{ .type = .EndOfFile, .start = 18, .end = 19 },
@@ -438,7 +437,7 @@ test "Property - Space and tabs between name and colon are skipped" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 19, .end = 20 },
+        Token{ .type = .Value, .start = 19, .end = 20 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
         Token{ .type = .EndOfFile, .start = 22, .end = 23 },
@@ -456,7 +455,7 @@ test "Property - Space and tabs between colon and value are skipped" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 19, .end = 20 },
+        Token{ .type = .Value, .start = 19, .end = 20 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
         Token{ .type = .EndOfFile, .start = 22, .end = 23 },
@@ -474,7 +473,7 @@ test "Property - Space and tabs between the last value and the semicolon are ski
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 15, .end = 16 },
+        Token{ .type = .Value, .start = 15, .end = 16 },
         Token{ .type = .EndStatement, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
         Token{ .type = .EndOfFile, .start = 22, .end = 23 },
@@ -491,7 +490,7 @@ test "Property - Value can contains $" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 15, .end = 26 },
+        Token{ .type = .Value, .start = 15, .end = 26 },
         Token{ .type = .EndStatement, .start = 26, .end = 27 },
         Token{ .type = .BlockEnd, .start = 27, .end = 28 },
         Token{ .type = .EndOfFile, .start = 28, .end = 29 },
@@ -522,11 +521,31 @@ test "Property - Value list" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 16, .end = 19 },
-        Token{ .type = .PropertyValue, .start = 20, .end = 25 },
+        Token{ .type = .Value, .start = 16, .end = 19 },
+        Token{ .type = .Value, .start = 20, .end = 25 },
         Token{ .type = .EndStatement, .start = 25, .end = 26 },
         Token{ .type = .BlockEnd, .start = 26, .end = 27 },
         Token{ .type = .EndOfFile, .start = 27, .end = 28 },
+    };
+
+    try expectTokenEquals(&expected, tokenization.tokens);
+}
+
+test "Property - Int sum" {
+    const input = ".button{border: 15 + 25;}";
+    var tokenization = try Tokenizer.tokenize(std.testing.allocator, input);
+    defer tokenization.deinit();
+
+    var expected: [9]Token = .{
+        Token{ .type = .Selector, .start = 0, .end = 7 },
+        Token{ .type = .BlockStart, .start = 7, .end = 8 },
+        Token{ .type = .PropertyName, .start = 8, .end = 14 },
+        Token{ .type = .Value, .start = 16, .end = 18 },
+        Token{ .type = .Value, .start = 19, .end = 20 },
+        Token{ .type = .Value, .start = 21, .end = 23 },
+        Token{ .type = .EndStatement, .start = 23, .end = 24 },
+        Token{ .type = .BlockEnd, .start = 24, .end = 25 },
+        Token{ .type = .EndOfFile, .start = 25, .end = 26 },
     };
 
     try expectTokenEquals(&expected, tokenization.tokens);
@@ -541,7 +560,7 @@ test "Block - Whitespaces between open bracket and identifier character are skip
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 14, .end = 20 },
-        Token{ .type = .PropertyValue, .start = 21, .end = 22 },
+        Token{ .type = .Value, .start = 21, .end = 22 },
         Token{ .type = .EndStatement, .start = 22, .end = 23 },
         Token{ .type = .BlockEnd, .start = 23, .end = 24 },
         Token{ .type = .EndOfFile, .start = 24, .end = 25 },
@@ -559,7 +578,7 @@ test "Block - Whitespaces after a semicolon are skipped" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 15, .end = 16 },
+        Token{ .type = .Value, .start = 15, .end = 16 },
         Token{ .type = .EndStatement, .start = 16, .end = 17 },
         Token{ .type = .BlockEnd, .start = 20, .end = 21 },
         Token{ .type = .EndOfFile, .start = 21, .end = 22 },
@@ -577,10 +596,10 @@ test "Block - Multiple properties in a block" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .PropertyName, .start = 8, .end = 14 },
-        Token{ .type = .PropertyValue, .start = 15, .end = 16 },
+        Token{ .type = .Value, .start = 15, .end = 16 },
         Token{ .type = .EndStatement, .start = 16, .end = 17 },
         Token{ .type = .PropertyName, .start = 17, .end = 24 },
-        Token{ .type = .PropertyValue, .start = 25, .end = 26 },
+        Token{ .type = .Value, .start = 25, .end = 26 },
         Token{ .type = .EndStatement, .start = 26, .end = 27 },
         Token{ .type = .BlockEnd, .start = 27, .end = 28 },
         Token{ .type = .EndOfFile, .start = 28, .end = 29 },
@@ -596,7 +615,7 @@ test "Variable" {
 
     var expected: [4]Token = .{
         Token{ .type = .VariableName, .start = 0, .end = 11 },
-        Token{ .type = .VariableValue, .start = 12, .end = 19 },
+        Token{ .type = .Value, .start = 12, .end = 19 },
         Token{ .type = .EndStatement, .start = 19, .end = 20 },
         Token{ .type = .EndOfFile, .start = 20, .end = 21 },
     };
@@ -610,7 +629,7 @@ test "Variable - Space and tabs between variable name and colon are skipped" {
 
     var expected: [4]Token = .{
         Token{ .type = .VariableName, .start = 0, .end = 11 },
-        Token{ .type = .VariableValue, .start = 16, .end = 23 },
+        Token{ .type = .Value, .start = 16, .end = 23 },
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
         Token{ .type = .EndOfFile, .start = 24, .end = 25 },
     };
@@ -624,7 +643,7 @@ test "Variable - Space and tabs between variable value and semicolon are part of
 
     var expected: [4]Token = .{
         Token{ .type = .VariableName, .start = 0, .end = 11 },
-        Token{ .type = .VariableValue, .start = 13, .end = 23 },
+        Token{ .type = .Value, .start = 13, .end = 23 },
         Token{ .type = .EndStatement, .start = 23, .end = 24 },
         Token{ .type = .EndOfFile, .start = 24, .end = 25 },
     };
@@ -641,7 +660,7 @@ test "Variable - Within a block" {
         Token{ .type = .Selector, .start = 0, .end = 7 },
         Token{ .type = .BlockStart, .start = 7, .end = 8 },
         Token{ .type = .VariableName, .start = 9, .end = 20 },
-        Token{ .type = .VariableValue, .start = 22, .end = 29 },
+        Token{ .type = .Value, .start = 22, .end = 29 },
         Token{ .type = .EndStatement, .start = 29, .end = 30 },
         Token{ .type = .BlockEnd, .start = 30, .end = 31 },
         Token{ .type = .EndOfFile, .start = 31, .end = 32 },
@@ -659,7 +678,7 @@ test "Block - Nested block" {
         Token{ .type = .Selector, .start = 8, .end = 10 },
         Token{ .type = .BlockStart, .start = 10, .end = 11 },
         Token{ .type = .PropertyName, .start = 11, .end = 17 },
-        Token{ .type = .PropertyValue, .start = 18, .end = 19 },
+        Token{ .type = .Value, .start = 18, .end = 19 },
         Token{ .type = .EndStatement, .start = 19, .end = 20 },
         Token{ .type = .BlockEnd, .start = 20, .end = 21 },
         Token{ .type = .BlockEnd, .start = 21, .end = 22 },
@@ -678,13 +697,13 @@ test "Block - Multiple nested block" {
         Token{ .type = .Selector, .start = 8, .end = 10 },
         Token{ .type = .BlockStart, .start = 10, .end = 11 },
         Token{ .type = .PropertyName, .start = 11, .end = 17 },
-        Token{ .type = .PropertyValue, .start = 18, .end = 19 },
+        Token{ .type = .Value, .start = 18, .end = 19 },
         Token{ .type = .EndStatement, .start = 19, .end = 20 },
         Token{ .type = .BlockEnd, .start = 20, .end = 21 },
         Token{ .type = .Selector, .start = 22, .end = 24 },
         Token{ .type = .BlockStart, .start = 24, .end = 25 },
         Token{ .type = .PropertyName, .start = 25, .end = 31 },
-        Token{ .type = .PropertyValue, .start = 32, .end = 33 },
+        Token{ .type = .Value, .start = 32, .end = 33 },
         Token{ .type = .EndStatement, .start = 33, .end = 34 },
         Token{ .type = .BlockEnd, .start = 34, .end = 35 },
         Token{ .type = .BlockEnd, .start = 35, .end = 36 },
