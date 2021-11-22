@@ -145,7 +145,7 @@ fn parse_variable(context: *Context) !Variable {
     const name = context.get_token_value(token);
 
     token = context.eat_token();
-    assert(token.type == .VariableValue);
+    assert(token.type == .Value);
     const value = context.get_token_value(token);
 
     token = context.eat_token();
@@ -224,7 +224,7 @@ fn parse_property(context: *Context) ParserError!Property {
     while (true) {
         var token = context.eat_token();
         switch (token.type) {
-            .PropertyValue => {
+            .Value => {
                 var content = context.get_token_value(token);
                 if (content[0] == '$') {
                     try value.append(.{ .Reference = content });
