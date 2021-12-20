@@ -22,11 +22,11 @@ pub const Token = struct {
 };
 
 pub const Tokenization = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     tokens: []Token,
     input: []const u8,
 
-    pub fn init(allocator: *Allocator, input: []const u8, tokens: []Token) Tokenization {
+    pub fn init(allocator: Allocator, input: []const u8, tokens: []Token) Tokenization {
         return .{ .allocator = allocator, .input = input, .tokens = tokens };
     }
 
@@ -70,7 +70,7 @@ pub const Tokenizer = struct {
     state: TokenizerState = .Start,
     tokens: ArrayList(Token),
 
-    fn init(allocator: *Allocator, input: []const u8) Tokenizer {
+    fn init(allocator: Allocator, input: []const u8) Tokenizer {
         return .{ .input = input, .state = .Start, .tokens = ArrayList(Token).init(allocator) };
     }
 
@@ -80,7 +80,7 @@ pub const Tokenizer = struct {
         self.tokens.deinit();
     }
 
-    pub fn tokenize(allocator: *Allocator, input: []const u8) Error!Tokenization {
+    pub fn tokenize(allocator: Allocator, input: []const u8) Error!Tokenization {
         var tokenizer = Tokenizer.init(allocator, input);
         errdefer tokenizer.deinit();
 

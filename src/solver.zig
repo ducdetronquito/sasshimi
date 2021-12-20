@@ -21,7 +21,7 @@ fn get_value(name: []const u8, variables: []parser.Variable) ?[]const u8 {
     return null;
 }
 
-pub fn solve(allocator: *Allocator, root: parser.Root) SolverError!void {
+pub fn solve(allocator: Allocator, root: parser.Root) SolverError!void {
     _ = allocator;
 
     try solve_variables(root.style_sheet.variables);

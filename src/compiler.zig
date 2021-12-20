@@ -5,7 +5,7 @@ const solver = @import("solver.zig");
 const std = @import("std");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 
-pub fn compile(allocator: *Allocator, input: []const u8) ![]u8 {
+pub fn compile(allocator: Allocator, input: []const u8) ![]u8 {
     var tokenization = try Tokenizer.tokenize(allocator, input);
     defer tokenization.deinit();
 

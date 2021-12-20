@@ -4,7 +4,7 @@ const parser = @import("parser.zig");
 const std = @import("std");
 
 pub const Css = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     style_rules: []StyleRule,
 
     pub fn deinit(self: Css) void {
@@ -19,7 +19,7 @@ const StyleRule = struct {
     selector: []u8,
     properties: []Property,
 
-    pub fn deinit(self: StyleRule, allocator: *Allocator) void {
+    pub fn deinit(self: StyleRule, allocator: Allocator) void {
         allocator.free(self.selector);
         allocator.free(self.properties);
     }
@@ -31,10 +31,10 @@ const Property = struct {
 };
 
 const Context = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     style_rules: ArrayList(StyleRule),
 
-    pub fn init(allocator: *Allocator) Context {
+    pub fn init(allocator: Allocator) Context {
         return Context{ .allocator = allocator, .style_rules = ArrayList(StyleRule).init(allocator) };
     }
 
@@ -45,7 +45,7 @@ const Context = struct {
 
 const Error = error{OutOfMemory};
 
-pub fn emit(allocator: *Allocator, root: parser.Root) !Css {
+pub fn emit(allocator: Allocator, root: parser.Root) !Css {
     var context = Context.init(allocator);
     errdefer context.deinit();
 

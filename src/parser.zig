@@ -9,7 +9,7 @@ const Tokenization = tokenizer.Tokenization;
 const Tokenizer = tokenizer.Tokenizer;
 
 pub const Root = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     style_sheet: StyleSheet,
 
     pub fn deinit(self: Root) void {
@@ -21,7 +21,7 @@ const StyleSheet = struct {
     style_rules: []StyleRule,
     variables: []Variable,
 
-    pub fn deinit(self: StyleSheet, allocator: *Allocator) void {
+    pub fn deinit(self: StyleSheet, allocator: Allocator) void {
         for (self.style_rules) |style_rule| {
             style_rule.deinit(allocator);
         }
@@ -36,7 +36,7 @@ pub const StyleRule = struct {
     style_rules: []StyleRule,
     variables: []Variable,
 
-    pub fn deinit(self: StyleRule, allocator: *Allocator) void {
+    pub fn deinit(self: StyleRule, allocator: Allocator) void {
         for (self.properties) |property| {
             property.deinit(allocator);
         }
@@ -53,7 +53,7 @@ const Property = struct {
     name: []const u8,
     value: [][]const u8,
 
-    pub fn deinit(self: Property, allocator: *Allocator) void {
+    pub fn deinit(self: Property, allocator: Allocator) void {
         allocator.free(self.value);
     }
 };
@@ -66,7 +66,7 @@ pub const Variable = struct {
 };
 
 const Context = struct {
-    allocator: *Allocator,
+    allocator: Allocator,
     current_token: usize = 0,
     source: []const u8,
     tokens: []Token,
@@ -97,7 +97,7 @@ const Context = struct {
 
 pub const ParserError = error{ NotImplemented, OutOfMemory, PropertyValueCannotBeEmpty };
 
-pub fn parse(allocator: *Allocator, tokenization: Tokenization) !Root {
+pub fn parse(allocator: Allocator, tokenization: Tokenization) !Root {
     var context = Context{ .allocator = allocator, .source = tokenization.input, .tokens = tokenization.tokens };
 
     var style_sheet = try parse_style_sheet(&context);
